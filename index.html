@@ -607,8 +607,9 @@ let editingReport = null;
 // ============================================================
 // SUPABASE CONFIG
 // ============================================================
-let SUPABASE_URL = localStorage.getItem('sb_url') || '';
-let SUPABASE_KEY = localStorage.getItem('sb_key') || '';
+// Supabase bilgileri sabit tanımlı — kullanıcıdan sorulmaz
+let SUPABASE_URL = localStorage.getItem('sb_url') || 'https://lplgqdnsleocmbilbiem.supabase.co';
+let SUPABASE_KEY = localStorage.getItem('sb_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxwbGdxZG5zbGVvY21iaWxiaWVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjM5NjgsImV4cCI6MjA4OTY5OTk2OH0.b2-gE86CKadLeAzL72leFPxE2XlCupvq4GKI0I3CfBo';
 
 window.saveConfig = function() {
   let url = document.getElementById('cfg-url').value.trim().replace(/\/$/, '');
@@ -2342,11 +2343,10 @@ function toast(msg, type='green') {
 // INIT
 // ============================================================
 (function() {
-  if (SUPABASE_URL && SUPABASE_KEY) {
-    document.getElementById('config-overlay').style.display = 'none';
-    const loginEl = document.getElementById('login-overlay');
-    loginEl.style.cssText = 'display:flex !important; position:fixed; inset:0; background:var(--dark); align-items:center; justify-content:center; z-index:9000;';
-  }
+  // Config ekranı hiç gösterilmez, direkt login
+  document.getElementById('config-overlay').style.display = 'none';
+  const loginEl = document.getElementById('login-overlay');
+  loginEl.style.cssText = 'display:flex !important; position:fixed; inset:0; background:var(--dark); align-items:center; justify-content:center; z-index:9000;';
 })();
 </script>
 </body>
