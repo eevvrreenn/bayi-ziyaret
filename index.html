@@ -463,6 +463,23 @@
     .pp-kpi-row { grid-template-columns: repeat(2,1fr); }
     .pp-info-grid { grid-template-columns: 1fr 1fr; }
   }
+
+  /* ===== PP PHOTO SLOTS ===== */
+  .pp-photo-slot {
+    border-radius: 8px; border: 2px dashed var(--border); cursor: pointer;
+    position: relative; overflow: hidden; transition: border-color 0.2s, background 0.2s;
+    background: var(--dark);
+  }
+  .pp-photo-slot:hover { border-color: var(--red); background: rgba(37,99,235,0.04); }
+  .pp-photo-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 6px; }
+  .pp-photo-icon { font-size: 24px; opacity: 0.5; }
+  .pp-photo-lbl { font-size: 11px; color: var(--muted); text-align: center; padding: 0 8px; }
+  .pp-photo-remove { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.55); border: none; color: #fff; border-radius: 50%; width: 20px; height: 20px; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; line-height:1; }
+  .pp-photo-remove:hover { background: var(--accent); }
+  .pp-owner-card { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 135px; }
+  .pp-owner-name { font-size: 13px; font-weight: 600; color: var(--text); text-align: center; }
+  .pp-owner-birth { font-size: 11px; color: var(--muted); text-align: center; }
+  .pp-owner-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
 </style>
 <!-- PDF & Excel kütüphaneleri -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -2482,6 +2499,31 @@ function ppInitials(name) { return name.split(/[\s\-]/)[0].slice(0,2).toUpperCas
 function ppPctClass(v) { if (v >= 100) return 'pp-col-green'; if (v >= 80) return 'pp-col-yellow'; return 'pp-col-red'; }
 function ppBarClass(v) { if (v >= 100) return 'pp-bar-green'; if (v >= 80) return 'pp-bar-yellow'; return 'pp-bar-red'; }
 
+// Photo store (slotId -> base64)
+const ppPhotoStore = {};
+
+function ppTriggerPhoto(slotId) {
+  const inp = document.getElementById('ppfile-' + slotId);
+  if (inp) inp.click();
+}
+
+function ppHandlePhoto(slotId, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    ppPhotoStore[slotId] = e.target.result;
+    ppRenderTab();
+  };
+  reader.readAsDataURL(file);
+}
+
+function ppRemovePhoto(event, slotId) {
+  event.stopPropagation();
+  delete ppPhotoStore[slotId];
+  ppRenderTab();
+}
+
 function ppGetAvailableYears() {
   const years = new Set();
   Object.values(PP_PERF).forEach(dealer => {
@@ -2655,6 +2697,43 @@ function ppRenderInfoTab(d) {
     `<div class="pp-info-card"><div class="pp-info-label">${i.label}</div><div class="pp-info-value">${i.val}</div></div>`
   ).join('');
 
+  // Photo slot helper
+  function photoSlot(slotId, label, w, h) {
+    const stored = ppPhotoStore[slotId];
+    return `<div class="pp-photo-slot" id="ppslot-${slotId}" style="width:${w}px;height:${h}px" onclick="ppTriggerPhoto('${slotId}')">
+      ${stored
+        ? `<img src="${stored}" alt="${label}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`
+        : `<div class="pp-photo-placeholder"><div class="pp-photo-icon">📷</div><div class="pp-photo-lbl">${label}</div></div>`
+      }
+      <input type="file" id="ppfile-${slotId}" accept="image/*" style="display:none" onchange="ppHandlePhoto('${slotId}',this)">
+      ${stored ? `<button class="pp-photo-remove" onclick="ppRemovePhoto(event,'${slotId}')">✕</button>` : ''}
+    </div>`;
+  }
+
+  // Owner cards
+  const owners = [
+    {name:d.owner1, birth:d.birthdate1},
+    {name:d.owner2, birth:d.birthdate2},
+    {name:d.owner3, birth:null},
+  ].filter(o=>o.name);
+  if (owners.length === 0) owners.push({name:'—', birth:null});
+
+  const ownerCards = owners.map((o,i) => {
+    const slotId = `${ppCurrentDealer}_owner_${i}`;
+    return `<div class="pp-owner-card">
+      ${photoSlot(slotId, 'Fotoğraf ekle', 130, 155)}
+      <div class="pp-owner-name">${o.name}</div>
+      ${o.birth ? `<div class="pp-owner-birth">🎂 ${o.birth}</div>` : ''}
+      <div class="pp-owner-lbl">Bayi Sahibi${owners.length>1?' '+(i+1):''}</div>
+    </div>`;
+  }).join('');
+
+  // Dealer photo slots (3)
+  const dealerPhotos = [0,1,2].map(i => {
+    const slotId = `${ppCurrentDealer}_dealer_${i}`;
+    return `<div style="flex-shrink:0">${photoSlot(slotId, 'Fotoğraf '+(i+1), 200, 140)}</div>`;
+  }).join('');
+
   const perf = PP_PERF[ppCurrentDealer] || {};
   const rsData = (perf.rs||[]).filter(r=>r.year===ppCurrentYear);
   const rsPlan = rsData.reduce((a,r)=>a+r.plan,0);
@@ -2689,6 +2768,18 @@ function ppRenderInfoTab(d) {
   }
 
   return `
+    <div class="pp-section-title">Bayi Sahipleri & Fotoğraflar</div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:24px;align-items:flex-start">
+      <div>
+        <div class="pp-group-label" style="margin-bottom:10px">Bayi Sahipleri</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">${ownerCards}</div>
+      </div>
+      <div style="width:1px;background:var(--border);align-self:stretch;flex-shrink:0"></div>
+      <div>
+        <div class="pp-group-label" style="margin-bottom:10px">Bayi Fotoğrafları</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">${dealerPhotos}</div>
+      </div>
+    </div>
     <div class="pp-section-title">Bayi Bilgileri</div>
     <div class="pp-info-grid">${infoGrid}</div>
     <div class="pp-section-title">Performans Özeti — ${ppCurrentYear}</div>
