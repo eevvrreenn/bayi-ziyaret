@@ -577,6 +577,8 @@ function saveConfig() {
     <button class="drawer-nav-btn" onclick="showPage('takvim');closeDrawer()"><span class="icon">📅</span> Ziyaret Takvimi</button>
     <button class="drawer-nav-btn" onclick="showPage('tum-raporlar');closeDrawer()"><span class="icon">📋</span> Tüm Raporlar</button>
     <button class="drawer-nav-btn" onclick="showPage('perf-panel');closeDrawer()"><span class="icon">🏆</span> Performans Paneli</button>
+    <button class="drawer-nav-btn" onclick="showPage('etkinlik');closeDrawer()"><span class="icon">🎪</span> Etkinlik Yönetimi</button>
+    <button class="drawer-nav-btn admin-only" id="drawer-admin-btn" onclick="showPage('admin-panel');closeDrawer()" style="display:none"><span class="icon">⚙️</span> Yönetim Paneli</button>
   </div>
   <div class="drawer-section-title">Bölge Müdürleri</div>
   <div id="drawer-mudur-list"></div>
@@ -596,6 +598,8 @@ function saveConfig() {
     <button class="nav-btn" onclick="showPage('takvim')">Ziyaret Takvimi</button>
     <button class="nav-btn" onclick="showPage('tum-raporlar')">Tüm Raporlar</button>
     <button class="nav-btn" onclick="showPage('perf-panel')">🏆 Performans</button>
+    <button class="nav-btn" onclick="showPage('etkinlik')">🎪 Etkinlik</button>
+    <button class="nav-btn admin-only" id="nav-admin-btn" onclick="showPage('admin-panel')" style="display:none">⚙️ Yönetim</button>
   </div>
   <div class="user-info">
     <div class="user-avatar" id="user-avatar">?</div>
@@ -636,6 +640,9 @@ function saveConfig() {
   </button>
   <button class="bottom-nav-btn" onclick="showPage('tum-raporlar')" data-page="tum-raporlar">
     <span class="bn-icon">📋</span><span>Raporlar</span>
+  </button>
+  <button class="bottom-nav-btn" onclick="showPage('etkinlik')" data-page="etkinlik">
+    <span class="bn-icon">🎪</span><span>Etkinlik</span>
   </button>
 </nav>
 
@@ -1036,7 +1043,7 @@ function closeDrawer() {
 function updateNavActive(page) {
   // Desktop nav
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  const navMap = {'yeni-rapor':0,'dashboard':1,'takvim':2,'tum-raporlar':3,'perf-panel':4};
+  const navMap = {'yeni-rapor':0,'dashboard':1,'takvim':2,'tum-raporlar':3,'perf-panel':4,'etkinlik':5};
   const nb = document.querySelectorAll('.nav-btn')[navMap[page]];
   if (nb) nb.classList.add('active');
   // Bottom nav
@@ -1057,6 +1064,8 @@ function showPage(page) {
   else if (page==='takvim') renderTakvim();
   else if (page==='tum-raporlar') renderTumRaporlar();
   else if (page==='perf-panel') renderPerfPanel();
+  else if (page==='etkinlik') renderEtkinlikPanel();
+  else if (page==='admin-panel') renderAdminPanel();
 }
 
 // ============================================================
@@ -2432,8 +2441,16 @@ async function doLogin() {
   document.getElementById('user-avatar').textContent = initials;
   document.getElementById('user-display').textContent = user.ad + (user.role==='admin' ? ' (Admin)' : '');
 
+  // Supabase'den config yükle (kullanıcı, bayi listesi)
+  await adminLoadConfig();
+
   // Supabase'den raporları yükle
   await loadRaporlarFromDB();
+
+  // Admin butonu göster/gizle
+  document.querySelectorAll('.admin-only').forEach(el => {
+    el.style.display = user.role === 'admin' ? '' : 'none';
+  });
 
   // Sidebar: admin tüm müdürleri görür
   renderSidebar(user.role === 'admin');
@@ -2537,7 +2554,7 @@ async function ppLoadPerfFromDb() {
     }
     return false;
   } catch(e) {
-    console.warn('ppLoadPerfFromDb failed:', e);
+    // Supabase erişilemez — sabit veri kullanılmaya devam eder
     return false;
   }
 }
@@ -2558,7 +2575,7 @@ async function ppLoadPhotosFromDb() {
     if (!res.ok) return;
     const rows = await res.json();
     rows.forEach(r => { ppPhotoStore[r.slot_id] = r.url; });
-  } catch(e) { console.warn('PP photos load failed:', e); }
+  } catch(e) { /* Supabase erişilemez — fotoğraflar atlanır */ }
 }
 
 // Fotoğrafı Storage'a yükle, URL'yi pp_photos tablosuna kaydet
@@ -3183,6 +3200,1118 @@ async function ppApplyImport() {
   await ppSavePerfToDb(PP_PERF);
   toast('✅ Performans verileri güncellendi ve kaydedildi!', 'blue');
 }
+
+// ============================================================
+// ETKİNLİK PANELİ — entegre modül
+// ============================================================
+
+// ── CSS ──────────────────────────────────────────────────────
+(function injectEtkinlikCSS() {
+  const style = document.createElement('style');
+  style.textContent = `
+  /* Etkinlik Panel Wrapper */
+  .etk-wrap { min-height: calc(100vh - 56px - var(--bottom-nav-h)); background: var(--dark); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; }
+
+  /* Etkinlik iç layout */
+  .etk-inner { display: flex; min-height: calc(100vh - 56px - var(--bottom-nav-h)); }
+
+  /* Etkinlik sidebar */
+  .etk-sb { width: 210px; min-width: 210px; background: var(--mid); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+  .etk-sb-hdr { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  .etk-sb-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .etk-sb-sub { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .etk-sb-user { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .etk-sb-av { width: 30px; height: 30px; background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.25); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--red); flex-shrink: 0; }
+  .etk-sb-nm { font-size: 12px; font-weight: 600; line-height: 1.3; }
+  .etk-sb-rl { font-size: 10px; color: var(--muted); }
+  .etk-sb-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
+  .etk-ni { display: flex; align-items: center; gap: 8px; padding: 9px 16px; cursor: pointer; transition: all 0.15s; border-left: 2px solid transparent; font-size: 13px; color: var(--muted); user-select: none; }
+  .etk-ni:hover { background: #EBF2FA; color: var(--text); }
+  .etk-ni.active { background: rgba(37,99,235,0.07); border-left-color: var(--red); color: var(--blue); font-weight: 600; }
+  .etk-ni-badge { margin-left: auto; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 20px; }
+
+  /* Etkinlik main area */
+  .etk-main { flex: 1; overflow-y: auto; padding: 18px; }
+  .etk-tb { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
+  .etk-tb-title { font-size: 17px; font-weight: 700; }
+
+  /* Stat kartları */
+  .etk-sg { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .etk-sc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; position: relative; overflow: hidden; transition: all 0.15s; box-shadow: 0 1px 4px rgba(37,99,235,0.05); }
+  .etk-sc:hover { transform: translateY(-2px); border-color: var(--red); }
+  .etk-sc::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--etk-ac, var(--red)); }
+  .etk-sc-ico { font-size: 18px; margin-bottom: 6px; opacity: .75; }
+  .etk-sc-val { font-size: 26px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; line-height: 1; margin-bottom: 3px; }
+  .etk-sc-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Card */
+  .etk-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(37,99,235,0.05); }
+  .etk-ch { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .etk-ct { font-size: 13px; font-weight: 700; color: var(--text); }
+  .etk-cb { padding: 0; }
+  .etk-cbp { padding: 16px; }
+
+  /* Tablo */
+  .etk-card table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .etk-card th { padding: 9px 12px; text-align: left; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); background: #F5F8FC; font-family: 'IBM Plex Sans', sans-serif; }
+  .etk-card td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  .etk-card tr:last-child td { border-bottom: none; }
+  .etk-card tr:hover td { background: #F5F9FF; cursor: pointer; }
+
+  /* Badge */
+  .etk-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .etk-badge::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+  .etk-bd0 { background: rgba(122,143,163,0.12); color: var(--muted); }
+  .etk-bd1 { background: rgba(168,85,247,0.12); color: #7c3aed; }
+  .etk-bd2 { background: rgba(180,83,9,0.12); color: var(--yellow); }
+  .etk-bd3 { background: rgba(29,78,216,0.12); color: var(--blue); }
+  .etk-bd4 { background: rgba(21,128,61,0.12); color: var(--green); }
+  .etk-bd5 { background: rgba(220,38,38,0.12); color: var(--accent); }
+  .etk-bd6 { background: rgba(21,128,61,0.15); color: var(--green); border: 1px solid rgba(21,128,61,0.2); }
+
+  /* Chip */
+  .etk-chip { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; background: #EBF2FA; color: var(--muted); }
+
+  /* Modal */
+  .etk-mo { position: fixed; inset: 0; background: rgba(30,58,95,0.55); display: none; align-items: flex-end; justify-content: center; z-index: 2000; padding: 20px; backdrop-filter: blur(3px); }
+  .etk-mo.open { display: flex; align-items: center; }
+  .etk-modal { background: var(--mid); border: 1px solid var(--border); border-top: 3px solid var(--red); border-radius: 12px; width: 100%; max-width: 680px; max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(37,99,235,0.15); animation: etkMIn .2s ease; }
+  @keyframes etkMIn { from { opacity:0; transform:scale(.96) translateY(12px); } to { opacity:1; transform:none; } }
+  .etk-mh { padding: 14px 18px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--mid); z-index: 1; }
+  .etk-mt { font-size: 15px; font-weight: 700; }
+  .etk-mx { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; padding: 2px; line-height: 1; border-radius: 4px; transition: all 0.15s; }
+  .etk-mx:hover { color: var(--text); background: var(--border); }
+  .etk-mb { padding: 18px; }
+  .etk-mft { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; background: var(--mid); position: sticky; bottom: 0; }
+
+  /* Form */
+  .etk-fr { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .etk-fr3 { grid-template-columns: 1fr 1fr 1fr; }
+  .etk-fg label { display: block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
+  .etk-fg input, .etk-fg select, .etk-fg textarea { width: 100%; background: var(--dark); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; outline: none; transition: border 0.2s; }
+  .etk-fg input:focus, .etk-fg select:focus, .etk-fg textarea:focus { border-color: var(--red); }
+  .etk-fg textarea { resize: vertical; min-height: 70px; }
+  .etk-sdiv { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 5px; margin: 14px 0 10px; }
+
+  /* Target grid */
+  .etk-tg { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 14px; }
+  .etk-ti { background: var(--dark); border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; transition: all 0.15s; }
+  .etk-ti:hover { border-color: var(--red); }
+  .etk-ticon { font-size: 18px; margin-bottom: 4px; }
+  .etk-tlbl { font-size: 9px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+  .etk-ti input { text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600; padding: 5px; border: 1px solid var(--border); border-radius: 4px; width: 100%; background: var(--mid); color: var(--text); outline: none; }
+  .etk-ti input:focus { border-color: var(--red); }
+
+  /* Progress */
+  .etk-pbw { background: var(--border); border-radius: 4px; height: 5px; overflow: hidden; }
+  .etk-pbar { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+
+  /* Timeline */
+  .etk-tl { position: relative; padding-left: 22px; }
+  .etk-tl::before { content:""; position:absolute; left:7px; top:8px; bottom:8px; width:1px; background:var(--border); }
+  .etk-tli { position:relative; margin-bottom:14px; }
+  .etk-tld { position:absolute; left:-18px; top:3px; width:9px; height:9px; border-radius:50%; border:2px solid var(--border); background:var(--mid); }
+  .etk-tld.done { background:var(--green); border-color:var(--green); }
+  .etk-tld.current { background:var(--yellow); border-color:var(--yellow); box-shadow:0 0 6px rgba(180,83,9,0.35); }
+  .etk-tld.rej { background:var(--accent); border-color:var(--accent); }
+  .etk-tdate { font-size:10px; color:var(--muted); }
+  .etk-tlab { font-size:13px; color:var(--text); margin:1px 0; }
+  .etk-tnote { font-size:11px; color:var(--muted); font-style:italic; }
+
+  /* Revision box */
+  .etk-rvbox { background:rgba(180,83,9,0.06); border:1px solid rgba(180,83,9,0.2); border-radius:6px; padding:10px; margin-top:8px; }
+
+  /* Charts */
+  .etk-cg { display:grid; grid-template-columns:2fr 1fr; gap:14px; margin-bottom:18px; }
+  .etk-cw { padding:14px; height:240px; position:relative; }
+
+  /* Tabs */
+  .etk-tabs { display:flex; border-bottom:1px solid var(--border); margin-bottom:16px; }
+  .etk-tab { padding:9px 14px; background:none; border:none; color:var(--muted); cursor:pointer; font-family:'IBM Plex Sans',sans-serif; font-size:13px; border-bottom:2px solid transparent; margin-bottom:-1px; transition:all 0.15s; }
+  .etk-tab.active { color:var(--red); border-bottom-color:var(--red); font-weight:600; }
+  .etk-tab:hover:not(.active) { color:var(--text); }
+
+  /* Filter bar */
+  .etk-fb { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
+  .etk-fb input, .etk-fb select { background:var(--mid); border:1px solid var(--border); color:var(--text); padding:8px 12px; border-radius:6px; font-family:'IBM Plex Sans',sans-serif; font-size:13px; outline:none; transition:border 0.2s; }
+  .etk-fb input { flex:1; min-width:160px; }
+  .etk-fb input:focus, .etk-fb select:focus { border-color:var(--red); }
+
+  /* Butonlar */
+  .etk-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border:none; border-radius:6px; font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+  .etk-btn:active { transform:scale(0.97); }
+  .etk-btn-primary { background:var(--red); color:#fff; }
+  .etk-btn-primary:hover { background:var(--accent); box-shadow:0 3px 12px rgba(220,38,38,0.3); }
+  .etk-btn-secondary { background:var(--border); color:var(--text); }
+  .etk-btn-secondary:hover { background:#D1DCE8; }
+  .etk-btn-success { background:rgba(21,128,61,0.12); color:var(--green); border:1px solid rgba(21,128,61,0.25); }
+  .etk-btn-success:hover { background:rgba(21,128,61,0.2); }
+  .etk-btn-warn { background:rgba(180,83,9,0.1); color:var(--yellow); border:1px solid rgba(180,83,9,0.25); }
+  .etk-btn-warn:hover { background:rgba(180,83,9,0.18); }
+  .etk-btn-danger { background:rgba(220,38,38,0.1); color:var(--accent); border:1px solid rgba(220,38,38,0.25); }
+  .etk-btn-danger:hover { background:rgba(220,38,38,0.18); }
+  .etk-btn-sm { padding:5px 10px; font-size:11px; }
+
+  /* Big number */
+  .etk-abig { font-family:'IBM Plex Mono',monospace; font-size:24px; font-weight:700; color:var(--red); }
+
+  /* Detail meta */
+  .etk-dm { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  .etk-mlbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; }
+  .etk-mval { font-size:13px; font-weight:600; }
+  .etk-stit { font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); border-left:3px solid var(--red); padding-left:7px; margin:16px 0 10px; }
+
+  /* Photo grid */
+  .etk-pgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:8px; margin-top:10px; }
+  .etk-pth { aspect-ratio:1; background:var(--dark); border:1px solid var(--border); border-radius:6px; overflow:hidden; position:relative; }
+  .etk-pth img { width:100%; height:100%; object-fit:cover; }
+  .etk-pth .etk-rph { position:absolute; top:3px; right:3px; background:rgba(30,58,95,0.8); border:none; color:#fff; border-radius:50%; width:17px; height:17px; font-size:9px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .etk-pua { border:2px dashed var(--border); border-radius:6px; padding:28px 16px; text-align:center; cursor:pointer; transition:all 0.15s; background:var(--dark); }
+  .etk-pua:hover { border-color:var(--red); background:rgba(37,99,235,0.04); }
+
+  /* Empty state */
+  .etk-est { text-align:center; padding:50px 20px; color:var(--muted); }
+  .etk-esico { font-size:34px; margin-bottom:8px; opacity:.4; }
+
+  /* Mobile: etkinlik sidebar gizli, sadece main göster */
+  @media (max-width: 767px) {
+    .etk-sb { display: none; }
+    .etk-main { padding: 12px; }
+    .etk-cg { grid-template-columns: 1fr; }
+    .etk-fr { grid-template-columns: 1fr; }
+    .etk-fr3 { grid-template-columns: 1fr 1fr; }
+    .etk-tg { grid-template-columns: repeat(2,1fr); }
+  }
+  @media (min-width: 768px) {
+    .etk-sb { display: flex; }
+  }
+  `;
+  document.head.appendChild(style);
+})();
+
+// ── VERİ ─────────────────────────────────────────────────────
+var ETK_acts = [
+  {id:'ACT-001',did:'u1',dn:'Istanbul Moto A.S.',reg:'Marmara',title:'Bahar Test Sürüşü Festivali',type:'Test Sürüşü',date:'2024-04-15',edate:'2024-04-16',loc:'İstanbul Yassıada',desc:'Yeni CB500F ve CB650R modellerini müşterilere tanıtma amacıyla 2 günlük etkinlik.',amt:45000,tgt:{td:60,sr:0,ct:15,sl:8},res:{td:74,sr:0,ct:18,sl:11},status:'completed',photos:['p1','p2','p3'],tl:[{date:'2024-03-20',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-03-22',lab:'BM Onayladı',s:'done',note:'Uygun bulundu.'},{date:'2024-03-24',lab:'SM Onayladı',s:'done',note:'Bütçe uygun.'},{date:'2024-04-20',lab:'Etkinlik Tamamlandı',s:'done',note:'Hedeflerin üzerinde.'}],ca:'2024-03-20',month:'2024-04',appAmt:42000},
+  {id:'ACT-002',did:'u1',dn:'Istanbul Moto A.S.',reg:'Marmara',title:'Showroom Açılış Özel Günü',type:'Showroom Etkinliği',date:'2024-05-10',edate:'2024-05-10',loc:'Kadıköy Showroom',desc:'Yenilenen showroom açılışı için özel gün. Kokteyl ve model tanıtımı.',amt:28000,tgt:{td:20,sr:150,ct:8,sl:4},res:null,status:'approved',photos:[],tl:[{date:'2024-04-01',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-04-05',lab:'Revizyon İstendi',s:'done',note:'Kokteyl bütçesi detaylandırılsın.'},{date:'2024-04-07',lab:'Revizyon Yapıldı',s:'done',note:''},{date:'2024-04-09',lab:'BM Onayladı',s:'done',note:''},{date:'2024-04-12',lab:'SM Onayladı',s:'done',note:'Onaylandı.'}],ca:'2024-04-01',month:'2024-05',appAmt:28000},
+  {id:'ACT-003',did:'u1',dn:'Istanbul Moto A.S.',reg:'Marmara',title:'Yaz Kampanyası Lansmanı',type:'Test Sürüşü',date:'2024-06-20',edate:'2024-06-22',loc:'Ataşehir Meydan',desc:'Yaz sezonu lansmanı. Yeni modeller ve test sürüşü imkânı.',amt:65000,tgt:{td:80,sr:200,ct:25,sl:15},res:null,status:'pending_bm',photos:[],tl:[{date:'2024-05-15',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-05-15',lab:'BM İncelemesini Bekliyor',s:'current',note:''}],ca:'2024-05-15',month:'2024-06',appAmt:null},
+  {id:'ACT-004',did:'u5',dn:'Ankara Honda Center',reg:'İç Anadolu',title:'Motosiklet Günleri',type:'Test Sürüşü',date:'2024-05-25',edate:'2024-05-26',loc:'TOBB ETÜ Kampüsü',desc:'Üniversite kampüsünde genç kullanıcı odaklı test sürüşü etkinliği.',amt:35000,tgt:{td:50,sr:120,ct:10,sl:5},res:{td:48,sr:135,ct:9,sl:5},status:'completed',photos:['p1'],tl:[{date:'2024-04-20',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-04-23',lab:'BM Onayladı',s:'done',note:''},{date:'2024-04-25',lab:'SM Onayladı',s:'done',note:''},{date:'2024-05-27',lab:'Tamamlandı',s:'done',note:''}],ca:'2024-04-20',month:'2024-05',appAmt:33000},
+  {id:'ACT-005',did:'u6',dn:'İzmir Moto Plaza',reg:'Ege',title:'Ege Turu Buluşması',type:'Topluluk Etkinliği',date:'2024-06-08',edate:'2024-06-09',loc:'Çeşme Marina',desc:'Honda kullanıcıları tur buluşması ve yeni üye kazanım etkinliği.',amt:22000,tgt:{td:30,sr:80,ct:5,sl:3},res:null,status:'revision_requested',photos:[],tl:[{date:'2024-05-01',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-05-04',lab:'Revizyon İstendi',s:'current',note:'Hedef rakamlar gerçekçi değil, revize edilsin.'}],ca:'2024-05-01',month:'2024-06',appAmt:null}
+];
+
+var ETK_SL = {draft:'Taslak',pending_bm:'BM Onayında',revision_requested:'Revizyon İstendi',approved_bm:'BM Onaylandı',approved:'Onaylandı',rejected:'Reddedildi',completed:'Tamamlandı'};
+var ETK_SB = {draft:'etk-bd0',pending_bm:'etk-bd1',revision_requested:'etk-bd2',approved_bm:'etk-bd3',approved:'etk-bd4',rejected:'etk-bd5',completed:'etk-bd6'};
+var ETK_RL = {mudur:'Bölge Müdürü',admin:'Yönetici'};
+var ETK_NAV = {
+  mudur:  [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'pending',ico:'⏳',lab:'Onay Bekleyenler',badge:true},{id:'allActs',ico:'📋',lab:'Tüm Etkinlikler'},{id:'reports',ico:'📈',lab:'Raporlar'}],
+  admin:  [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'allActs',ico:'📋',lab:'Tüm Etkinlikler'},{id:'reports',ico:'📈',lab:'Raporlar'}]
+};
+
+var ETK_currentNav = 'dashboard';
+var ETK_detailAct = null;
+
+// Rol köprüsü: ana uygulamanın rollerini etkinlik rollerine çevir
+function etkRole() {
+  if (!currentUser) return 'mudur';
+  if (currentUser.role === 'admin') return 'admin';
+  return 'mudur'; // tüm müdürler BM gibi çalışır
+}
+
+function etkCu() {
+  if (!currentUser) return null;
+  var initials = currentUser.ad.split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
+  return { id: currentUser.username, name: currentUser.ad, role: etkRole(), av: initials, region: currentUser.mudur || null };
+}
+
+// ── RENDER ANA FONKSİYON ──────────────────────────────────────
+function renderEtkinlikPanel() {
+  var cu = etkCu();
+  if (!cu) return;
+  var navItems = ETK_NAV[cu.role] || ETK_NAV['mudur'];
+  var pc = etkGetPc(cu);
+
+  var navHtml = navItems.map(function(it) {
+    return '<div class="etk-ni'+(ETK_currentNav===it.id?' active':'') +'" onclick="etkNav(\''+it.id+'\')" >'
+      +'<span>'+it.ico+'</span><span>'+it.lab+'</span>'
+      +(it.badge && pc>0?'<span class="etk-ni-badge">'+pc+'</span>':'')
+      +'</div>';
+  }).join('');
+
+  var html = '<div class="etk-wrap"><div class="etk-inner">'
+    +'<div class="etk-sb">'
+      +'<div class="etk-sb-hdr"><div class="etk-sb-title">🎪 Etkinlik</div><div class="etk-sb-sub">Yönetim Paneli</div></div>'
+      +'<div class="etk-sb-user"><div class="etk-sb-av">'+cu.av+'</div><div><div class="etk-sb-nm">'+cu.name+'</div><div class="etk-sb-rl">'+ETK_RL[cu.role]+'</div></div></div>'
+      +'<div class="etk-sb-nav">'+navHtml+'</div>'
+    +'</div>'
+    +'<div class="etk-main" id="etk-main-content"></div>'
+  +'</div></div>';
+
+  document.getElementById('main-content').innerHTML = html;
+  etkRenderContent();
+}
+
+function etkNav(page) {
+  ETK_currentNav = page;
+  // sidebar aktif güncelle
+  document.querySelectorAll('.etk-ni').forEach(function(n){
+    n.classList.toggle('active', n.getAttribute('onclick').includes("'"+page+"'"));
+  });
+  etkRenderContent();
+}
+
+function etkRenderContent() {
+  var cu = etkCu();
+  var c = document.getElementById('etk-main-content');
+  if (!c) return;
+  if (ETK_currentNav === 'dashboard') etkRenderDB(c, cu);
+  else if (ETK_currentNav === 'allActs') etkRenderAllActs(c, cu);
+  else if (ETK_currentNav === 'pending') etkRenderPending(c, cu);
+  else if (ETK_currentNav === 'reports') etkRenderReports(c, cu);
+  else if (ETK_currentNav === 'newAct') etkRenderNewForm(c, cu);
+  else if (ETK_currentNav === 'detail') etkRenderDetail(c, cu, ETK_detailAct);
+}
+
+function etkGetPc(cu) {
+  if (cu.role === 'mudur') return ETK_acts.filter(function(a){return a.status==='pending_bm';}).length;
+  return 0;
+}
+
+// ── DASHBOARD ──────────────────────────────────────────────
+function etkRenderDB(c, cu) {
+  var acts = ETK_acts;
+  var completed = acts.filter(function(a){return a.status==='completed';});
+  var pending   = acts.filter(function(a){return ['pending_bm','revision_requested','approved_bm'].includes(a.status);});
+  var tb = completed.reduce(function(s,a){return s+(a.appAmt||0);},0);
+
+  var html = '<div class="etk-tb"><div class="etk-tb-title">📊 Dashboard</div>'
+    +(cu.role==='mudur'?'<button class="etk-btn etk-btn-primary" onclick="etkNav(\'newAct\')">+ Yeni Talep</button>':'')
+    +'</div>';
+
+  html += '<div class="etk-sg">'
+    +'<div class="etk-sc" style="--etk-ac:var(--red)"><div class="etk-sc-ico">📋</div><div class="etk-sc-val">'+acts.length+'</div><div class="etk-sc-lbl">Toplam Etkinlik</div></div>'
+    +'<div class="etk-sc" style="--etk-ac:var(--yellow)"><div class="etk-sc-ico">⏳</div><div class="etk-sc-val">'+pending.length+'</div><div class="etk-sc-lbl">İşlemde</div></div>'
+    +'<div class="etk-sc" style="--etk-ac:var(--green)"><div class="etk-sc-ico">✅</div><div class="etk-sc-val">'+completed.length+'</div><div class="etk-sc-lbl">Tamamlandı</div></div>'
+    +'<div class="etk-sc" style="--etk-ac:var(--blue)"><div class="etk-sc-ico">₺</div><div class="etk-sc-val">'+etkFc(tb)+'</div><div class="etk-sc-lbl">Onaylanan Bütçe</div></div>'
+    +'</div>';
+
+  html += '<div class="etk-cg">'
+    +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Aylık Etkinlik & Harcama</div></div><div class="etk-cw"><canvas id="etkCA"></canvas></div></div>'
+    +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Durum Dağılımı</div></div><div class="etk-cw"><canvas id="etkCB"></canvas></div></div>'
+    +'</div>';
+
+  html += '<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Son Etkinlikler</div></div><div class="etk-cb">'+etkBuildTbl(acts.slice(-5).reverse(), cu)+'</div></div>';
+
+  c.innerHTML = html;
+  setTimeout(function(){ etkInitCharts(); }, 80);
+}
+
+function etkInitCharts() {
+  if (typeof Chart === 'undefined') return;
+  var ca = document.getElementById('etkCA');
+  if (ca && !ca._ci) {
+    ca._ci = new Chart(ca, {type:'bar',data:{labels:['Oca','Şub','Mar','Nis','May','Haz'],datasets:[
+      {label:'Etkinlik',data:[1,2,1,3,2,2],backgroundColor:'rgba(37,99,235,0.55)',borderRadius:4,yAxisID:'y'},
+      {label:'Harcama (k₺)',data:[28,45,22,78,55,45],type:'line',borderColor:'var(--accent)',backgroundColor:'rgba(220,38,38,0.08)',tension:.4,pointRadius:4,pointBackgroundColor:'var(--accent)',yAxisID:'y1',fill:true}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7A8FA3',font:{size:10}}}},scales:{y:{ticks:{color:'#7A8FA3'},grid:{color:'rgba(209,220,232,0.5)'}},y1:{position:'right',ticks:{color:'#7A8FA3'},grid:{drawOnChartArea:false}}}}});
+  }
+  var cb = document.getElementById('etkCB');
+  if (cb && !cb._ci) {
+    cb._ci = new Chart(cb, {type:'doughnut',data:{labels:['Tamamlandı','Onaylı','BM Onayında','Revizyon','Reddedildi'],datasets:[{data:[2,1,1,1,0],backgroundColor:['#15803D','#1D4ED8','#7c3aed','#B45309','#DC2626'],borderWidth:2,borderColor:'#FFFFFF'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7A8FA3',font:{size:10},padding:8,boxWidth:10}}},cutout:'60%'}});
+  }
+}
+
+// ── TABLO ─────────────────────────────────────────────────────
+function etkBuildTbl(list, cu) {
+  if (!list || !list.length) return '<div class="etk-est"><div class="etk-esico">📋</div><p>Etkinlik bulunamadı</p></div>';
+  var showD = (cu.role !== 'dealer');
+  var h = '<table><thead><tr><th>Kod</th>'+(showD?'<th>Bayi</th>':'')+'<th>Etkinlik</th><th>Tarih</th><th>Talep</th><th>Durum</th><th></th></tr></thead><tbody>';
+  list.forEach(function(a) {
+    var aid = a.id;
+    h += '<tr onclick="etkGoDetail(\''+aid+'\')">';
+    h += '<td style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:var(--muted)">'+a.id+'</td>';
+    if (showD) h += '<td><div style="font-weight:600;font-size:12px">'+a.dn+'</div><span class="etk-chip">'+a.reg+'</span></td>';
+    h += '<td><div style="font-weight:600">'+a.title+'</div><div style="font-size:11px;color:var(--muted)">'+a.type+'</div></td>';
+    h += '<td style="color:var(--muted);font-size:12px">'+a.date+'</td>';
+    h += '<td><span style="font-family:\'IBM Plex Mono\',monospace;font-weight:700">'+etkFcf(a.amt)+'</span></td>';
+    h += '<td><span class="etk-badge '+ETK_SB[a.status]+'">'+ETK_SL[a.status]+'</span></td>';
+    h += '<td><button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="event.stopPropagation();etkGoDetail(\''+aid+'\')">Detay</button></td>';
+    h += '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function etkGoDetail(id) {
+  ETK_detailAct = ETK_acts.find(function(a){return a.id===id;});
+  ETK_currentNav = 'detail';
+  document.querySelectorAll('.etk-ni').forEach(function(n){ n.classList.remove('active'); });
+  etkRenderContent();
+}
+
+// ── TÜM ETKİNLİKLER ──────────────────────────────────────────
+function etkRenderAllActs(c, cu) {
+  c.innerHTML = '<div class="etk-tb"><div class="etk-tb-title">📋 Tüm Etkinlikler</div>'
+    +(cu.role==='mudur'?'<button class="etk-btn etk-btn-primary" onclick="etkNav(\'newAct\')">+ Yeni Talep</button>':'')+'</div>'
+    +'<div class="etk-fb"><input placeholder="Bayi, etkinlik, kod..." id="etkSrch" oninput="etkFilter()">'
+    +'<select id="etkFst" onchange="etkFilter()"><option value="">Tüm Durumlar</option>'
+    +Object.entries(ETK_SL).map(function(e){return '<option value="'+e[0]+'">'+e[1]+'</option>';}).join('')+'</select></div>'
+    +'<div class="etk-card" id="etkActW"><div class="etk-cb">'+etkBuildTbl(ETK_acts.slice().reverse(), cu)+'</div></div>';
+}
+
+function etkFilter() {
+  var cu = etkCu();
+  var q = (document.getElementById('etkSrch')||{value:''}).value.toLowerCase();
+  var s = (document.getElementById('etkFst')||{value:''}).value;
+  var list = ETK_acts.slice();
+  if (q) list = list.filter(function(a){return a.title.toLowerCase().includes(q)||a.dn.toLowerCase().includes(q)||a.id.toLowerCase().includes(q);});
+  if (s) list = list.filter(function(a){return a.status===s;});
+  var w = document.getElementById('etkActW');
+  if (w) w.innerHTML = '<div class="etk-cb">'+etkBuildTbl(list.reverse(), cu)+'</div>';
+}
+
+// ── ONAY BEKLEYENLERl ────────────────────────────────────────
+function etkRenderPending(c, cu) {
+  var p = ETK_acts.filter(function(a){return a.status==='pending_bm';});
+  if (!p.length) { c.innerHTML='<div class="etk-est"><div class="etk-esico">✅</div><p style="font-size:15px">Onay bekleyen talep yok</p></div>'; return; }
+  c.innerHTML = '<div class="etk-tb"><div class="etk-tb-title">⏳ Onay Bekleyenler</div></div>'
+    +'<p style="margin-bottom:12px;color:var(--muted);font-size:13px">'+p.length+' talep incelemenizi bekliyor</p>'
+    +'<div class="etk-card"><div class="etk-cb">'+etkBuildTbl(p, cu)+'</div></div>';
+}
+
+// ── YENİ ETKİNLİK FORMU ──────────────────────────────────────
+function etkRenderNewForm(c, cu) {
+  var today = new Date().toISOString().split('T')[0];
+  c.innerHTML = '<div class="etk-tb"><div class="etk-tb-title">+ Yeni Etkinlik Talebi</div></div>'
+    +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Etkinlik Bilgileri</div></div><div class="etk-cbp">'
+    +'<div class="etk-sdiv">Genel</div>'
+    +'<div class="etk-fr"><div class="etk-fg"><label>Etkinlik Adı *</label><input id="etkFt" placeholder="Etkinlik başlığı"></div>'
+    +'<div class="etk-fg"><label>Etkinlik Tipi</label><select id="etkFty"><option>Test Sürüşü</option><option>Showroom Etkinliği</option><option>Lansman</option><option>Topluluk Etkinliği</option><option>Fuar/Sergi</option><option>Diğer</option></select></div></div>'
+    +'<div class="etk-fr etk-fr3"><div class="etk-fg"><label>Başlangıç *</label><input type="date" id="etkFd" value="'+today+'"></div>'
+    +'<div class="etk-fg"><label>Bitiş</label><input type="date" id="etkFed" value="'+today+'"></div>'
+    +'<div class="etk-fg"><label>Lokasyon</label><input id="etkFl" placeholder="Şehir, Mekan"></div></div>'
+    +'<div class="etk-fg" style="margin-bottom:16px"><label>Açıklama</label><textarea id="etkFdesc" rows="4" placeholder="Etkinliğin amacı, hedef kitle, içerik..."></textarea></div>'
+    +'<div class="etk-sdiv">Bütçe</div>'
+    +'<div style="max-width:280px;margin-bottom:16px"><div class="etk-fg"><label>Talep Tutarı (TL) *</label><input type="number" id="etkFa" placeholder="0" style="font-family:\'IBM Plex Mono\',monospace;font-size:17px"></div></div>'
+    +'<div class="etk-sdiv">Hedefler</div>'
+    +'<div class="etk-tg">'
+    +'<div class="etk-ti"><div class="etk-ticon">🏍️</div><div class="etk-tlbl">Test Sürüşü</div><input type="number" id="etkFtd" value="0" min="0"></div>'
+    +'<div class="etk-ti"><div class="etk-ticon">🏠</div><div class="etk-tlbl">Showroom</div><input type="number" id="etkFsr" value="0" min="0"></div>'
+    +'<div class="etk-ti"><div class="etk-ticon">📄</div><div class="etk-tlbl">Sözleşme</div><input type="number" id="etkFct" value="0" min="0"></div>'
+    +'<div class="etk-ti"><div class="etk-ticon">🛒</div><div class="etk-tlbl">Satış</div><input type="number" id="etkFsl" value="0" min="0"></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px">'
+    +'<button class="etk-btn etk-btn-secondary" onclick="etkNav(\'allActs\')">İptal</button>'
+    +'<button class="etk-btn etk-btn-secondary" onclick="etkSaveAct(\'draft\')" style="border:1px solid var(--border)">Taslak Kaydet</button>'
+    +'<button class="etk-btn etk-btn-primary" onclick="etkSaveAct(\'submit\')">Talebi Gönder</button>'
+    +'</div></div></div>';
+}
+
+function etkSaveAct(mode) {
+  var title = (document.getElementById('etkFt').value||'').trim();
+  if (!title) { toast('Etkinlik adı zorunlu!', 'red'); return; }
+  var amt = parseInt(document.getElementById('etkFa').value)||0;
+  if (!amt && mode==='submit') { toast('Talep tutarı girilmeli!', 'red'); return; }
+  var cu = etkCu();
+  var td = new Date().toISOString().split('T')[0];
+  var d  = document.getElementById('etkFd').value;
+  var na = {
+    id: 'ACT-00'+(ETK_acts.length+1),
+    did: cu.id, dn: cu.name, reg: cu.region||'Marmara',
+    title: title, type: document.getElementById('etkFty').value,
+    date: d, edate: document.getElementById('etkFed').value,
+    loc: document.getElementById('etkFl').value||'-',
+    desc: document.getElementById('etkFdesc').value||'',
+    amt: amt,
+    tgt: {td:parseInt(document.getElementById('etkFtd').value)||0, sr:parseInt(document.getElementById('etkFsr').value)||0, ct:parseInt(document.getElementById('etkFct').value)||0, sl:parseInt(document.getElementById('etkFsl').value)||0},
+    res: null, status: mode==='draft'?'draft':'pending_bm', photos: [],
+    tl: [{date:td,lab:mode==='draft'?'Taslak Oluşturuldu':'Talep Gönderildi',s:'done',note:''}].concat(mode==='submit'?[{date:td,lab:'BM İncelemesini Bekliyor',s:'current',note:''}]:[]),
+    ca: td, month: d.substring(0,7), appAmt: null
+  };
+  ETK_acts.unshift(na);
+  toast(mode==='draft'?'Taslak kaydedildi':'✅ Etkinlik talebi gönderildi!', 'green');
+  etkNav('allActs');
+}
+
+// ── DETAY ─────────────────────────────────────────────────────
+function etkRenderDetail(c, cu, act) {
+  if (!act) { c.innerHTML='<p style="padding:20px;color:var(--muted)">Etkinlik bulunamadı.</p>'; return; }
+
+  var ab = '';
+  if (cu.role==='mudur' && act.status==='pending_bm') {
+    ab = '<button class="etk-btn etk-btn-success etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'approve\')">✓ Onayla</button>'
+       + '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkRevReq(\''+act.id+'\')">↩ Revizyon</button>'
+       + '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'reject\')">✕ Reddet</button>';
+  }
+  if (cu.role==='mudur' && act.status==='revision_requested') {
+    ab = '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkOpenRevMod(\''+act.id+'\')">✏️ Revizyon Yap</button>';
+  }
+  if ((cu.role==='admin'||cu.role==='mudur') && act.status==='approved_bm') {
+    ab = '<button class="etk-btn etk-btn-success etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'final_approve\')">✓ Son Onay</button>'
+       + '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'reject\')">✕ Reddet</button>';
+  }
+  if (act.status==='approved' && !act.res) {
+    ab += '<button class="etk-btn etk-btn-primary etk-btn-sm" onclick="etkOpenResMod(\''+act.id+'\')">Sonuçları Gir</button>';
+  }
+
+  var steps=['Talep','BM Onayı','Son Onay','Tamamlandı'];
+  var stepDone=[true,['approved_bm','approved','completed'].includes(act.status),['approved','completed'].includes(act.status),act.status==='completed'];
+  var stepCur=[false,act.status==='pending_bm'||act.status==='revision_requested',act.status==='approved_bm',act.status==='approved'];
+  var stepRej=[false,act.status==='rejected',false,false];
+
+  var progH = '<div style="display:flex;margin-bottom:20px">'+steps.map(function(s,i){
+    var bg=stepDone[i]?'var(--green)':stepCur[i]?'var(--yellow)':stepRej[i]?'var(--accent)':'var(--border)';
+    var bc=stepDone[i]?'var(--green)':stepCur[i]?'var(--yellow)':stepRej[i]?'var(--accent)':'var(--border)';
+    var tc=stepDone[i]||stepCur[i]||stepRej[i]?'white':'var(--muted)';
+    var lbl=stepDone[i]?'✓':stepCur[i]?'○':stepRej[i]?'✕':(i+1);
+    var lineBg=stepDone[i]?'var(--green)':'var(--border)';
+    return '<div style="flex:1;text-align:center;position:relative">'+(i>0?'<div style="position:absolute;top:10px;left:-50%;right:50%;height:2px;background:'+lineBg+'"></div>':'')
+      +'<div style="width:22px;height:22px;border-radius:50%;margin:0 auto 5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;position:relative;z-index:1;background:'+bg+';border:2px solid '+bc+';color:'+tc+'">'+lbl+'</div>'
+      +'<div style="font-size:10px;color:'+(stepDone[i]?'var(--text)':stepCur[i]?'var(--yellow)':'var(--muted)')+'">'+s+'</div></div>';
+  }).join('')+'</div>';
+
+  var resH = '';
+  if (act.res) {
+    var rr=[{l:'Test Sürüşü',ic:'🏍️',t:act.tgt.td,r:act.res.td},{l:'Showroom',ic:'🏠',t:act.tgt.sr,r:act.res.sr},{l:'Sözleşme',ic:'📄',t:act.tgt.ct,r:act.res.ct},{l:'Satış',ic:'🛒',t:act.tgt.sl,r:act.res.sl}];
+    resH = '<div class="etk-stit" style="margin-top:18px">Hedef vs Gerçekleşen</div>'
+      +'<table><thead><tr><th>Kriter</th><th>Hedef</th><th>Gerçekleşen</th><th>Başarı</th></tr></thead><tbody>'
+      +rr.map(function(r){
+        var pct=r.t>0?Math.round((r.r/r.t)*100):0;
+        var col=pct>=100?'var(--green)':pct>=75?'var(--yellow)':'var(--accent)';
+        return '<tr><td>'+r.ic+' '+r.l+'</td><td style="font-family:\'IBM Plex Mono\',monospace;font-weight:700;color:var(--blue)">'+r.t+'</td>'
+          +'<td style="font-family:\'IBM Plex Mono\',monospace;font-weight:700;color:var(--green)">'+r.r+'</td>'
+          +'<td><div style="display:flex;align-items:center;gap:6px"><div class="etk-pbw" style="flex:1;min-width:55px"><div class="etk-pbar" style="width:'+Math.min(pct,100)+'%;background:'+col+'"></div></div><span style="color:'+col+';font-size:11px;font-weight:700;min-width:32px">%'+pct+'</span></div></td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+
+  var rvNote = (act.tl.find(function(t){return t.lab.includes('Revizyon İstendi');})||{note:''}).note;
+
+  c.innerHTML = '<div class="etk-tb">'
+    +'<button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="etkNav(\'allActs\')">← Geri</button>'
+    +'<span class="etk-badge '+ETK_SB[act.status]+'" style="font-size:12px;padding:4px 12px">'+ETK_SL[act.status]+'</span>'
+    +'<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">'+ab+'</span></div>'
+    +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">'
+    +'<div><div class="etk-card" style="margin-bottom:14px"><div class="etk-ch"><div class="etk-ct">'+act.title+'</div></div><div class="etk-cbp">'
+    +progH
+    +'<div class="etk-dm">'
+    +'<div><div class="etk-mlbl">Kod</div><div class="etk-mval" style="font-size:11px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace">'+act.id+'</div></div>'
+    +'<div><div class="etk-mlbl">Bayi</div><div class="etk-mval">'+act.dn+'</div></div>'
+    +'<div><div class="etk-mlbl">Tarih</div><div class="etk-mval">'+act.date+(act.edate!==act.date?' – '+act.edate:'')+'</div></div>'
+    +'<div><div class="etk-mlbl">Lokasyon</div><div class="etk-mval">'+act.loc+'</div></div>'
+    +'</div>'
+    +'<div class="etk-stit">Açıklama</div><p style="color:var(--muted);font-size:13px;line-height:1.7">'+act.desc+'</p>'
+    +'<div class="etk-stit" style="margin-top:16px">Hedefler</div>'
+    +'<div class="etk-tg" style="pointer-events:none">'
+    +[{i:'🏍️',l:'Test',v:act.tgt.td},{i:'🏠',l:'Showroom',v:act.tgt.sr},{i:'📄',l:'Sözleşme',v:act.tgt.ct},{i:'🛒',l:'Satış',v:act.tgt.sl}].map(function(t){
+      return '<div class="etk-ti"><div class="etk-ticon">'+t.i+'</div><div class="etk-tlbl">'+t.l+'</div><div style="font-family:\'IBM Plex Mono\',monospace;font-size:22px;font-weight:700;color:var(--red)">'+t.v+'</div></div>';
+    }).join('')+'</div>'
+    +(rvNote?'<div class="etk-rvbox"><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--yellow);margin-bottom:4px">Revizyon Notu</div><p style="font-size:13px">'+rvNote+'</p></div>':'')
+    +resH+'</div></div></div>'
+    +'<div><div class="etk-card" style="margin-bottom:12px"><div class="etk-ch"><div class="etk-ct">Bütçe</div></div><div class="etk-cbp">'
+    +'<div style="margin-bottom:12px"><div class="etk-mlbl">Talep Edilen</div><div class="etk-abig">'+etkFcf(act.amt)+'</div></div>'
+    +(act.appAmt?'<div><div class="etk-mlbl">Onaylanan</div><div style="font-family:\'IBM Plex Mono\',monospace;font-size:20px;font-weight:700;color:var(--green)">'+etkFcf(act.appAmt)+'</div></div>':'')
+    +'</div></div>'
+    +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Süreç</div></div><div class="etk-cbp">'
+    +'<div class="etk-tl">'+act.tl.map(function(t){
+      return '<div class="etk-tli"><div class="etk-tld '+t.s+'"></div><div class="etk-tdate">'+t.date+'</div><div class="etk-tlab">'+t.lab+'</div>'+(t.note?'<div class="etk-tnote">"'+t.note+'"</div>':'')+'</div>';
+    }).join('')+'</div></div></div>'
+    +'</div></div>';
+}
+
+// ── ONAY / RED İŞLEMİ ────────────────────────────────────────
+function etkAppAct(id, action) {
+  var act = ETK_acts.find(function(a){return a.id===id;});
+  if (!act) return;
+  var td = new Date().toISOString().split('T')[0];
+  if (action==='approve') {
+    act.status='approved_bm';
+    act.tl.push({date:td,lab:'BM Onayladı',s:'done',note:'Uygun bulundu.'});
+    act.tl.push({date:td,lab:'Son Onay Bekleniyor',s:'current',note:''});
+    toast('✅ Onaylandı — son onaya iletildi.', 'green');
+  } else if (action==='final_approve') {
+    act.status='approved'; act.appAmt=act.amt;
+    act.tl.push({date:td,lab:'Son Onay Verildi',s:'done',note:'Etkinlik gerçekleşebilir.'});
+    toast('✅ Son onay verildi!', 'green');
+  } else if (action==='reject') {
+    act.status='rejected';
+    act.tl.push({date:td,lab:'Reddedildi',s:'rej',note:''});
+    toast('Etkinlik reddedildi.', 'red');
+  }
+  ETK_detailAct = act;
+  etkRenderContent();
+}
+
+// ── REVİZYON ─────────────────────────────────────────────────
+function etkRevReq(id) {
+  etkOpenMod('Revizyon Talebi',
+    '<p style="color:var(--muted);margin-bottom:12px;font-size:13px">Bayiden hangi değişiklikleri istiyorsunuz?</p>'
+    +'<div class="etk-fg"><label>Revizyon Notu</label><textarea id="etkRvn" rows="4" placeholder="Yapılması gereken değişiklikleri açıklayın..."></textarea></div>',
+    '<button class="etk-btn etk-btn-secondary" onclick="etkCloseMod()">İptal</button>'
+    +'<button class="etk-btn etk-btn-warn" onclick="etkSubRevReq(\''+id+'\')">Revizyon İste</button>'
+  );
+}
+
+function etkSubRevReq(id) {
+  var note = (document.getElementById('etkRvn').value||'').trim();
+  if (!note) { toast('Not yazın', 'red'); return; }
+  var act = ETK_acts.find(function(a){return a.id===id;});
+  var td = new Date().toISOString().split('T')[0];
+  act.status='revision_requested';
+  act.tl.push({date:td,lab:'Revizyon İstendi',s:'current',note:note});
+  etkCloseMod();
+  toast('Revizyon talebi gönderildi.', 'blue');
+  ETK_detailAct = act;
+  etkRenderContent();
+}
+
+function etkOpenRevMod(id) {
+  var act = ETK_acts.find(function(a){return a.id===id;});
+  var rvn = (act.tl.find(function(t){return t.lab.includes('Revizyon İstendi');})||{note:''}).note;
+  etkOpenMod('Revizyon Yap',
+    '<div class="etk-rvbox" style="margin-bottom:14px"><div style="font-size:10px;text-transform:uppercase;color:var(--yellow);margin-bottom:3px">Revizyon Notu</div><p style="font-size:13px">'+rvn+'</p></div>'
+    +'<div class="etk-fg" style="margin-bottom:12px"><label>Güncellenmiş Açıklama</label><textarea id="etkRvd" rows="4">'+act.desc+'</textarea></div>'
+    +'<div class="etk-fg"><label>Güncellenmiş Tutar (TL)</label><input type="number" id="etkRva" value="'+act.amt+'"></div>',
+    '<button class="etk-btn etk-btn-secondary" onclick="etkCloseMod()">İptal</button>'
+    +'<button class="etk-btn etk-btn-primary" onclick="etkSubRev(\''+id+'\')">Revize Talebi Gönder</button>'
+  );
+}
+
+function etkSubRev(id) {
+  var act = ETK_acts.find(function(a){return a.id===id;});
+  var td = new Date().toISOString().split('T')[0];
+  act.desc = document.getElementById('etkRvd').value;
+  act.amt = parseInt(document.getElementById('etkRva').value)||act.amt;
+  act.status = 'pending_bm';
+  act.tl = act.tl.filter(function(t){return t.s!=='current';});
+  act.tl.push({date:td,lab:'Revizyon Yapıldı',s:'done',note:''});
+  act.tl.push({date:td,lab:'BM İncelemesini Bekliyor',s:'current',note:''});
+  etkCloseMod();
+  toast('Revize talep gönderildi.', 'green');
+  ETK_detailAct = act;
+  etkRenderContent();
+}
+
+// ── SONUÇ GİRİŞİ ─────────────────────────────────────────────
+function etkOpenResMod(id) {
+  var act = ETK_acts.find(function(a){return a.id===id;});
+  etkOpenMod('Etkinlik Sonuçlarını Gir',
+    '<p style="color:var(--muted);margin-bottom:14px;font-size:13px">Sonuçları ve fotoğrafları ekleyin.</p>'
+    +'<div class="etk-sdiv">Gerçekleşen Sonuçlar</div>'
+    +'<div class="etk-tg">'
+    +'<div class="etk-ti"><div class="etk-ticon">🏍️</div><div class="etk-tlbl">Test (H:'+act.tgt.td+')</div><input type="number" id="etkRtd" value="'+act.tgt.td+'" min="0"></div>'
+    +'<div class="etk-ti"><div class="etk-ticon">🏠</div><div class="etk-tlbl">Showroom (H:'+act.tgt.sr+')</div><input type="number" id="etkRsr" value="'+act.tgt.sr+'" min="0"></div>'
+    +'<div class="etk-ti"><div class="etk-ticon">📄</div><div class="etk-tlbl">Sözleşme (H:'+act.tgt.ct+')</div><input type="number" id="etkRct" value="'+act.tgt.ct+'" min="0"></div>'
+    +'<div class="etk-ti"><div class="etk-ticon">🛒</div><div class="etk-tlbl">Satış (H:'+act.tgt.sl+')</div><input type="number" id="etkRsl" value="'+act.tgt.sl+'" min="0"></div>'
+    +'</div>',
+    '<button class="etk-btn etk-btn-secondary" onclick="etkCloseMod()">İptal</button>'
+    +'<button class="etk-btn etk-btn-success" onclick="etkSubRes(\''+id+'\')">Sonuçları Kaydet</button>'
+  );
+}
+
+function etkSubRes(id) {
+  var act = ETK_acts.find(function(a){return a.id===id;});
+  act.res = {
+    td: parseInt(document.getElementById('etkRtd').value)||0,
+    sr: parseInt(document.getElementById('etkRsr').value)||0,
+    ct: parseInt(document.getElementById('etkRct').value)||0,
+    sl: parseInt(document.getElementById('etkRsl').value)||0
+  };
+  act.status = 'completed';
+  act.tl.push({date:new Date().toISOString().split('T')[0],lab:'Tamamlandı',s:'done',note:'Sonuçlar kaydedildi.'});
+  etkCloseMod();
+  toast('✅ Sonuçlar kaydedildi!', 'green');
+  ETK_detailAct = act;
+  etkRenderContent();
+}
+
+// ── RAPORLAR ─────────────────────────────────────────────────
+function etkRenderReports(c, cu) {
+  var acts = ETK_acts;
+  var rows = {};
+  acts.forEach(function(a){
+    if (!rows[a.dn]) rows[a.dn]={d:a.dn,r:a.reg,cnt:0,req:0,app:0,comp:0};
+    rows[a.dn].cnt++;
+    rows[a.dn].req+=a.amt;
+    if (a.appAmt) rows[a.dn].app+=a.appAmt;
+    if (a.status==='completed') rows[a.dn].comp++;
+  });
+  var rowsArr = Object.values(rows);
+
+  c.innerHTML = '<div class="etk-tb"><div class="etk-tb-title">📈 Raporlar</div></div>'
+    +'<div class="etk-tabs">'
+    +'<button class="etk-tab active" onclick="etkSwTab(this,\'etkTS\')">Aylık Özet</button>'
+    +'<button class="etk-tab" onclick="etkSwTab(this,\'etkTD\')">Bayi Bazlı</button>'
+    +'<button class="etk-tab" onclick="etkSwTab(this,\'etkTC\')">Grafikler</button>'
+    +'</div>'
+    +'<div id="etkTS">'
+    +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Aylık Etkinlik Özeti</div></div><div class="etk-cb">'
+    +'<table><thead><tr><th>Dönem</th><th>Etkinlik</th><th>Toplam Talep</th><th>Onaylanan</th><th>Tamamlanan</th></tr></thead><tbody>'
+    +['2024-04','2024-05','2024-06'].map(function(m){
+      var ma=acts.filter(function(a){return a.month===m;});
+      if (!ma.length) return '';
+      var req=ma.reduce(function(s,a){return s+a.amt;},0);
+      var app=ma.reduce(function(s,a){return s+(a.appAmt||0);},0);
+      var comp=ma.filter(function(a){return a.status==='completed';});
+      return '<tr><td style="font-family:\'IBM Plex Mono\',monospace;font-weight:700">'+m+'</td><td style="font-family:\'IBM Plex Mono\',monospace;font-size:16px;font-weight:700;color:var(--red)">'+ma.length+'</td><td>'+etkFcf(req)+'</td><td style="color:var(--green)">'+(app?etkFcf(app):'—')+'</td><td>'+(comp.length?'<span style="color:var(--green)">'+comp.length+'</span>':'0')+'</td></tr>';
+    }).join('')
+    +'<tr style="background:#F5F8FC"><td style="font-weight:700">TOPLAM</td><td style="font-family:\'IBM Plex Mono\',monospace;font-size:16px;color:var(--red);font-weight:700">'+acts.length+'</td>'
+    +'<td>'+etkFcf(acts.reduce(function(s,a){return s+a.amt;},0))+'</td>'
+    +'<td style="color:var(--green)">'+etkFcf(acts.reduce(function(s,a){return s+(a.appAmt||0);},0))+'</td>'
+    +'<td style="color:var(--green)">'+acts.filter(function(a){return a.status==='completed';}).length+'</td></tr>'
+    +'</tbody></table></div></div></div>'
+    +'<div id="etkTD" class="hidden">'
+    +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Bayi Bazlı Performans</div></div><div class="etk-cb">'
+    +'<table><thead><tr><th>Bayi</th><th>Bölge</th><th>Etkinlik</th><th>Talep</th><th>Onaylanan</th><th>Tamamlanan</th><th>Performans</th></tr></thead><tbody>'
+    +rowsArr.map(function(r){
+      var pct=r.cnt>0?Math.round((r.comp/r.cnt)*100):0;
+      var col=pct>=75?'var(--green)':pct>=50?'var(--yellow)':'var(--accent)';
+      return '<tr><td style="font-weight:600">'+r.d+'</td><td><span class="etk-chip">'+r.r+'</span></td>'
+        +'<td style="font-family:\'IBM Plex Mono\',monospace;font-weight:700">'+r.cnt+'</td>'
+        +'<td>'+etkFcf(r.req)+'</td>'
+        +'<td style="color:var(--green)">'+(r.app?etkFcf(r.app):'—')+'</td>'
+        +'<td>'+r.comp+'</td>'
+        +'<td><div style="display:flex;align-items:center;gap:6px"><div class="etk-pbw" style="flex:1;min-width:55px"><div class="etk-pbar" style="width:'+pct+'%;background:'+col+'"></div></div><span style="color:'+col+';font-size:11px;font-weight:700">%'+pct+'</span></div></td></tr>';
+    }).join('')
+    +'</tbody></table></div></div></div>'
+    +'<div id="etkTC" class="hidden">'
+    +'<div class="etk-cg"><div class="etk-card"><div class="etk-ch"><div class="etk-ct">Aylık Trend</div></div><div class="etk-cw"><canvas id="etkRC1"></canvas></div></div>'
+    +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Bölge Dağılımı</div></div><div class="etk-cw"><canvas id="etkRC2"></canvas></div></div></div></div>';
+}
+
+function etkSwTab(btn, id) {
+  document.querySelectorAll('.etk-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  ['etkTS','etkTD','etkTC'].forEach(function(t){
+    var el=document.getElementById(t);
+    if(el) el.classList.toggle('hidden', t!==id);
+  });
+  if (id==='etkTC') setTimeout(etkInitRCharts, 80);
+}
+
+function etkInitRCharts() {
+  if (typeof Chart === 'undefined') return;
+  var c1=document.getElementById('etkRC1');
+  if(c1&&!c1._ci){c1._ci=new Chart(c1,{type:'line',data:{labels:['Nis','May','Haz'],datasets:[{label:'Etkinlik',data:[1,2,2],borderColor:'var(--red)',backgroundColor:'rgba(37,99,235,0.08)',tension:.4,fill:true,pointRadius:5,pointBackgroundColor:'var(--red)'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{color:'#7A8FA3'},grid:{color:'rgba(209,220,232,0.4)'}},x:{ticks:{color:'#7A8FA3'}}}}});}
+  var c2=document.getElementById('etkRC2');
+  if(c2&&!c2._ci){c2._ci=new Chart(c2,{type:'pie',data:{labels:['Marmara','İç Anadolu','Ege'],datasets:[{data:[3,1,1],backgroundColor:['var(--red)','var(--blue)','var(--green)'],borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7A8FA3',font:{size:10}}}}}});}
+}
+
+// ── MODAL ────────────────────────────────────────────────────
+function etkOpenMod(title, body, footer) {
+  var mo = document.getElementById('etk-modal-overlay');
+  if (!mo) {
+    mo = document.createElement('div');
+    mo.id = 'etk-modal-overlay';
+    mo.className = 'etk-mo';
+    mo.innerHTML = '<div class="etk-modal"><div class="etk-mh"><div class="etk-mt" id="etk-mt">Modal</div><button class="etk-mx" onclick="etkCloseMod()">✕</button></div><div class="etk-mb" id="etk-mb"></div><div class="etk-mft" id="etk-mft"></div></div>';
+    document.body.appendChild(mo);
+  }
+  document.getElementById('etk-mt').textContent = title;
+  document.getElementById('etk-mb').innerHTML = body;
+  document.getElementById('etk-mft').innerHTML = footer;
+  mo.classList.add('open');
+}
+function etkCloseMod() {
+  var mo = document.getElementById('etk-modal-overlay');
+  if (mo) mo.classList.remove('open');
+}
+
+// ── YARDIMCI ─────────────────────────────────────────────────
+
+// ============================================================
+// ADMİN YÖNETİM PANELİ
+// ============================================================
+
+// Supabase'deki config tablosu anahtarları
+const ADMIN_CFG_KEY_USERS  = 'admin_users';
+const ADMIN_CFG_KEY_BAYILER = 'admin_bayiler';
+
+// Çalışma zamanında değiştirilebilir kopyalar
+let ADMIN_USERS_RT   = null; // null = henüz yüklenmedi
+let ADMIN_BAYILER_RT = null;
+
+// ── Supabase'den config yükle (login sırasında çağrılır) ─────
+async function adminLoadConfig() {
+  try {
+    const rows = await sbFetch(`app_config?key=in.(${ADMIN_CFG_KEY_USERS},${ADMIN_CFG_KEY_BAYILER})&select=key,value`);
+    rows.forEach(r => {
+      if (r.key === ADMIN_CFG_KEY_USERS  && r.value) ADMIN_USERS_RT   = JSON.parse(r.value);
+      if (r.key === ADMIN_CFG_KEY_BAYILER && r.value) ADMIN_BAYILER_RT = JSON.parse(r.value);
+    });
+    // Uygulamaya yansıt
+    if (ADMIN_USERS_RT)   adminApplyUsers(ADMIN_USERS_RT);
+    if (ADMIN_BAYILER_RT) adminApplyBayiler(ADMIN_BAYILER_RT);
+  } catch(e) { /* Supabase erişilemez — kod içindeki sabit veri kullanılır */ }
+}
+
+function adminApplyUsers(list) {
+  // USERS dizisini güncelle (const olduğundan içini değiştir)
+  USERS.length = 0;
+  list.forEach(u => USERS.push(u));
+}
+
+function adminApplyBayiler(list) {
+  BAYILER.length = 0;
+  list.forEach(b => BAYILER.push(b));
+  // MUDURLER dinamik türetildiği için sidebar da güncellenecek
+}
+
+// ── Supabase'e kaydet ────────────────────────────────────────
+async function adminSaveConfig(key, value) {
+  try {
+    // upsert: varsa güncelle, yoksa ekle
+    await sbFetch(`app_config`, {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ key, value: JSON.stringify(value) })
+    });
+    return true;
+  } catch(e) {
+    toast('⚠️ Kayıt başarısız: ' + e.message, 'red');
+    return false;
+  }
+}
+
+// ── ANA RENDER ───────────────────────────────────────────────
+let adminTab = 'users';
+
+function renderAdminPanel() {
+  if (!currentUser || currentUser.role !== 'admin') {
+    document.getElementById('main-content').innerHTML =
+      '<div style="padding:40px;text-align:center;color:var(--muted)">Bu sayfaya erişim yetkiniz yok.</div>';
+    return;
+  }
+  document.getElementById('main-content').innerHTML = `
+  <div style="padding:6px 0 18px">
+    <div style="font-size:20px;font-weight:700;margin-bottom:4px">⚙️ Yönetim Paneli</div>
+    <div style="font-size:12px;color:var(--muted)">Değişiklikler Supabase'e kaydedilir ve tüm oturumlara anında yansır.</div>
+  </div>
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+    <button class="admin-tab-btn ${adminTab==='users'?'active':''}" onclick="adminSetTab('users')">👤 Kullanıcılar</button>
+    <button class="admin-tab-btn ${adminTab==='bayiler'?'active':''}" onclick="adminSetTab('bayiler')">🏍️ Bayiler</button>
+    <button class="admin-tab-btn ${adminTab==='mudurler'?'active':''}" onclick="adminSetTab('mudurler')">📋 Müdür Özeti</button>
+  </div>
+  <div id="admin-tab-content"></div>`;
+
+  adminInjectTabCSS();
+  adminRenderTab();
+}
+
+function adminSetTab(tab) {
+  adminTab = tab;
+  document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(tab==='users'?'kullanıcı':tab==='bayiler'?'bayi':'müdür')));
+  adminRenderTab();
+}
+
+function adminRenderTab() {
+  const c = document.getElementById('admin-tab-content');
+  if (!c) return;
+  if (adminTab === 'users')    adminRenderUsers(c);
+  if (adminTab === 'bayiler')  adminRenderBayiler(c);
+  if (adminTab === 'mudurler') adminRenderMudurOzet(c);
+}
+
+function adminInjectTabCSS() {
+  if (document.getElementById('admin-tab-css')) return;
+  const s = document.createElement('style');
+  s.id = 'admin-tab-css';
+  s.textContent = `
+  .admin-tab-btn { background:none; border:none; border-bottom:3px solid transparent; margin-bottom:-2px;
+    padding:10px 18px; cursor:pointer; font-family:inherit; font-size:13px; font-weight:600;
+    color:var(--muted); transition:all 0.15s; }
+  .admin-tab-btn:hover { color:var(--text); }
+  .admin-tab-btn.active { color:var(--red); border-bottom-color:var(--red); }
+  .admin-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+  .admin-tbl th { text-align:left; padding:9px 10px; border-bottom:2px solid var(--border);
+    color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:1px; background:#F5F8FC; }
+  .admin-tbl td { padding:9px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .admin-tbl tr:last-child td { border-bottom:none; }
+  .admin-tbl tr:hover td { background:#F5F9FF; }
+  .admin-inp { background:var(--dark); border:1px solid var(--border); border-radius:5px;
+    padding:6px 9px; font-family:inherit; font-size:13px; color:var(--text);
+    outline:none; transition:border 0.15s; width:100%; }
+  .admin-inp:focus { border-color:var(--red); }
+  .admin-sel { background:var(--dark); border:1px solid var(--border); border-radius:5px;
+    padding:6px 9px; font-family:inherit; font-size:13px; color:var(--text);
+    outline:none; width:100%; -webkit-appearance:none; }
+  .admin-sel:focus { border-color:var(--red); }
+  .admin-del-btn { background:rgba(220,38,38,0.08); border:1px solid rgba(220,38,38,0.2);
+    color:var(--accent); border-radius:5px; padding:5px 10px; cursor:pointer;
+    font-size:12px; font-family:inherit; transition:all 0.15s; }
+  .admin-del-btn:hover { background:rgba(220,38,38,0.15); }
+  .admin-add-btn { background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.2);
+    color:var(--blue); border-radius:6px; padding:8px 16px; cursor:pointer;
+    font-size:13px; font-weight:600; font-family:inherit; transition:all 0.15s; }
+  .admin-add-btn:hover { background:rgba(37,99,235,0.14); }
+  .admin-save-btn { background:var(--red); color:#fff; border:none; border-radius:6px;
+    padding:10px 24px; cursor:pointer; font-size:14px; font-weight:700;
+    font-family:inherit; transition:all 0.15s; }
+  .admin-save-btn:hover { background:var(--accent); box-shadow:0 3px 12px rgba(220,38,38,0.3); }
+  .admin-save-btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .admin-card { background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:18px; margin-bottom:16px; box-shadow:0 1px 4px rgba(37,99,235,0.05); }
+  .admin-badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
+  .admin-badge-admin { background:rgba(220,38,38,0.1); color:var(--accent); }
+  .admin-badge-mudur { background:rgba(29,78,216,0.1); color:var(--blue); }
+  `;
+  document.head.appendChild(s);
+}
+
+// ── KULLANICILAR SEKMESI ──────────────────────────────────────
+function adminRenderUsers(c) {
+  const users = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+
+  c.innerHTML = `
+  <div class="admin-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div>
+        <div style="font-size:14px;font-weight:700">Kullanıcılar</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${users.length} kullanıcı</div>
+      </div>
+      <button class="admin-add-btn" onclick="adminAddUser()">+ Kullanıcı Ekle</button>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="admin-tbl" id="admin-users-tbl">
+      <thead><tr>
+        <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Şifre</th><th>Rol</th><th>Müdür (bağlı bayi grubu)</th><th></th>
+      </tr></thead>
+      <tbody id="admin-users-tbody">
+      ${users.map((u,i) => adminUserRow(u, i)).join('')}
+      </tbody>
+    </table>
+    </div>
+    <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
+      <button class="admin-save-btn" onclick="adminSaveUsers()" id="admin-save-users-btn">💾 Kaydet</button>
+      <span style="font-size:11px;color:var(--muted)" id="admin-users-status"></span>
+    </div>
+  </div>
+  <div class="admin-card" style="background:rgba(180,83,9,0.04);border-color:rgba(180,83,9,0.2)">
+    <div style="font-size:12px;color:var(--yellow);font-weight:600;margin-bottom:6px">⚠️ Önemli Notlar</div>
+    <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8">
+      <li>Şifreler düz metin olarak saklanır — güçlü şifre kullanın.</li>
+      <li>"Müdür" alanı, müdür rolü için hangi bayi grubunun gösterileceğini belirler. Bayiler sekmesindeki müdür adıyla birebir eşleşmeli.</li>
+      <li>Admin rolünde "Müdür" alanı boş bırakılabilir.</li>
+      <li>Değişiklikler "Kaydet" butonuna basılmadan kaydedilmez.</li>
+    </ul>
+  </div>`;
+}
+
+function adminUserRow(u, i) {
+  const mudurOptions = [...new Set(BAYILER.map(b=>b.mudur))];
+  const mudurSel = mudurOptions.map(m => `<option value="${m}" ${u.mudur===m?'selected':''}>${m}</option>`).join('');
+  return `<tr id="admin-urow-${i}">
+    <td><input class="admin-inp" style="width:130px" value="${u.username||''}" onchange="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
+    <td><input class="admin-inp" style="width:150px" value="${u.ad||''}" onchange="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
+    <td><input class="admin-inp" style="width:130px" type="text" value="${u.password||''}" onchange="adminUserField(${i},'password',this.value)" placeholder="Şifre"></td>
+    <td>
+      <select class="admin-sel" style="width:110px" onchange="adminUserField(${i},'role',this.value)">
+        <option value="mudur" ${u.role==='mudur'?'selected':''}>Müdür</option>
+        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+      </select>
+    </td>
+    <td>
+      <select class="admin-sel" style="width:170px" onchange="adminUserField(${i},'mudur',this.value)">
+        <option value="">— (Admin için boş) —</option>
+        ${mudurSel}
+      </select>
+    </td>
+    <td><button class="admin-del-btn" onclick="adminDelUser(${i})">Sil</button></td>
+  </tr>`;
+}
+
+let _adminUsersData = null;
+function adminUserField(i, field, val) {
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  _adminUsersData[i][field] = val;
+}
+function adminAddUser() {
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  const mudurDefault = BAYILER.length ? BAYILER[0].mudur : '';
+  _adminUsersData.push({ username:'', password:'', ad:'', role:'mudur', mudur: mudurDefault });
+  adminRenderTab();
+}
+function adminDelUser(i) {
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  if (!confirm(`"${_adminUsersData[i].ad || _adminUsersData[i].username}" kullanıcısını silmek istediğinize emin misiniz?`)) return;
+  _adminUsersData.splice(i, 1);
+  adminRenderTab();
+}
+async function adminSaveUsers() {
+  const btn = document.getElementById('admin-save-users-btn');
+  const st  = document.getElementById('admin-users-status');
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  // Boş kullanıcı adı kontrolü
+  const invalid = _adminUsersData.find(u => !u.username.trim() || !u.password.trim());
+  if (invalid) { toast('Kullanıcı adı ve şifre boş bırakılamaz!', 'red'); return; }
+  btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…';
+  const ok = await adminSaveConfig(ADMIN_CFG_KEY_USERS, _adminUsersData);
+  if (ok) {
+    ADMIN_USERS_RT = _adminUsersData;
+    adminApplyUsers(_adminUsersData);
+    _adminUsersData = null;
+    st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR');
+    st.style.color = 'var(--green)';
+    toast('✅ Kullanıcılar güncellendi!', 'green');
+  }
+  btn.disabled = false; btn.textContent = '💾 Kaydet';
+}
+
+// ── BAYİLER SEKMESI ───────────────────────────────────────────
+function adminRenderBayiler(c) {
+  const bayiler = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  const mudurler = [...new Set(bayiler.map(b=>b.mudur))].sort();
+
+  // Filtre
+  const filterMudur = document.getElementById('admin-bayi-filter')?.value || '';
+  const filterQ     = document.getElementById('admin-bayi-q')?.value.toLowerCase() || '';
+  const filtered = bayiler.filter(b =>
+    (!filterMudur || b.mudur === filterMudur) &&
+    (!filterQ     || b.ad.toLowerCase().includes(filterQ) || b.sehir.toLowerCase().includes(filterQ))
+  );
+
+  c.innerHTML = `
+  <div class="admin-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="font-size:14px;font-weight:700">Bayiler</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${bayiler.length} bayi · ${mudurler.length} müdür</div>
+      </div>
+      <button class="admin-add-btn" onclick="adminAddBayi()">+ Bayi Ekle</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <input class="admin-inp" id="admin-bayi-q" style="flex:1;min-width:160px" placeholder="🔍 Bayi veya şehir ara…" value="${filterQ}" oninput="adminRenderTab()">
+      <select class="admin-sel" id="admin-bayi-filter" style="width:180px" onchange="adminRenderTab()">
+        <option value="">Tüm Müdürler</option>
+        ${mudurler.map(m=>`<option value="${m}" ${filterMudur===m?'selected':''}>${m}</option>`).join('')}
+      </select>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="admin-tbl">
+      <thead><tr><th>#</th><th>Bayi Adı</th><th>Şehir</th><th>Bağlı Müdür</th><th></th></tr></thead>
+      <tbody>
+      ${filtered.map((b) => {
+        const realIdx = bayiler.indexOf(b);
+        const mudurSel = [...new Set(BAYILER.map(x=>x.mudur))].sort()
+          .map(m=>`<option value="${m}" ${b.mudur===m?'selected':''}>${m}</option>`).join('');
+        return `<tr>
+          <td style="color:var(--muted);font-size:11px;width:36px">${realIdx+1}</td>
+          <td><input class="admin-inp" value="${b.ad||''}" onchange="adminBayiField(${realIdx},'ad',this.value)" placeholder="Bayi adı"></td>
+          <td><input class="admin-inp" style="width:120px" value="${b.sehir||''}" onchange="adminBayiField(${realIdx},'sehir',this.value)" placeholder="Şehir"></td>
+          <td>
+            <select class="admin-sel" style="width:180px" onchange="adminBayiField(${realIdx},'mudur',this.value)">
+              ${mudurSel}
+            </select>
+          </td>
+          <td><button class="admin-del-btn" onclick="adminDelBayi(${realIdx})">Sil</button></td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+    </div>
+    ${filtered.length === 0 ? '<div style="text-align:center;padding:30px;color:var(--muted)">Sonuç bulunamadı</div>' : ''}
+    <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="admin-save-btn" onclick="adminSaveBayiler()" id="admin-save-bayiler-btn">💾 Tümünü Kaydet</button>
+      <button class="admin-add-btn" onclick="adminAddMudur()" style="margin-left:8px">+ Yeni Müdür Adı Ekle</button>
+      <span style="font-size:11px;color:var(--muted)" id="admin-bayiler-status"></span>
+    </div>
+  </div>`;
+}
+
+let _adminBayilerData = null;
+function adminBayiField(i, field, val) {
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  _adminBayilerData[i][field] = val;
+}
+function adminAddBayi() {
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  const mudurDefault = _adminBayilerData.length ? _adminBayilerData[0].mudur : '';
+  _adminBayilerData.push({ ad:'', sehir:'', mudur: mudurDefault });
+  adminRenderTab();
+}
+function adminDelBayi(i) {
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  if (!confirm(`"${_adminBayilerData[i].ad || 'bu bayi'}"yi silmek istediğinize emin misiniz?`)) return;
+  _adminBayilerData.splice(i, 1);
+  adminRenderTab();
+}
+function adminAddMudur() {
+  const ad = prompt('Yeni müdür adını girin:');
+  if (!ad || !ad.trim()) return;
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  _adminBayilerData.push({ ad:'', sehir:'', mudur: ad.trim() });
+  // USERS'a da ekle — prompt
+  const username = prompt(`"${ad.trim()}" için kullanıcı adı girin:`);
+  const password = prompt(`"${ad.trim()}" için şifre girin:`);
+  if (username && password) {
+    if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+    _adminUsersData.push({ username: username.trim(), password: password.trim(), ad: ad.trim(), role:'mudur', mudur: ad.trim() });
+  }
+  adminRenderTab();
+  toast('Müdür eklendi — kaydetmeyi unutmayın!', 'blue');
+}
+async function adminSaveBayiler() {
+  const btn = document.getElementById('admin-save-bayiler-btn');
+  const st  = document.getElementById('admin-bayiler-status');
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  const invalid = _adminBayilerData.find(b => !b.ad.trim());
+  if (invalid) { toast('Bayi adı boş bırakılamaz!', 'red'); return; }
+  btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…';
+  const ok = await adminSaveConfig(ADMIN_CFG_KEY_BAYILER, _adminBayilerData);
+  if (ok) {
+    ADMIN_BAYILER_RT = _adminBayilerData;
+    adminApplyBayiler(_adminBayilerData);
+    _adminBayilerData = null;
+    // Kullanıcılar da değiştiyse kaydet
+    if (_adminUsersData) await adminSaveUsers();
+    st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR');
+    st.style.color = 'var(--green)';
+    toast('✅ Bayiler güncellendi!', 'green');
+    renderSidebar(true);
+  }
+  btn.disabled = false; btn.textContent = '💾 Tümünü Kaydet';
+}
+
+// ── MÜDÜR ÖZETİ SEKMESI ──────────────────────────────────────
+function adminRenderMudurOzet(c) {
+  const bayiler = ADMIN_BAYILER_RT || BAYILER;
+  const mudurler = [...new Set(bayiler.map(b=>b.mudur))].sort();
+  const users    = ADMIN_USERS_RT  || USERS;
+
+  c.innerHTML = `
+  <div class="admin-card">
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px">Müdür — Bayi Dağılımı</div>
+    <table class="admin-tbl">
+      <thead><tr><th>Müdür</th><th>Rol</th><th>Kullanıcı Adı</th><th>Bayi Sayısı</th><th>Bayiler</th></tr></thead>
+      <tbody>
+      ${mudurler.map(m => {
+        const u = users.find(x=>x.mudur===m);
+        const bs = bayiler.filter(b=>b.mudur===m);
+        return `<tr>
+          <td style="font-weight:700">${m}</td>
+          <td>${u ? `<span class="admin-badge ${u.role==='admin'?'admin-badge-admin':'admin-badge-mudur'}">${u.role==='admin'?'Admin':'Müdür'}</span>` : '<span style="color:var(--muted);font-size:11px">Kullanıcı yok</span>'}</td>
+          <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)">${u ? u.username : '—'}</td>
+          <td style="font-weight:700;color:var(--red)">${bs.length}</td>
+          <td style="font-size:12px;color:var(--muted);max-width:300px">${bs.map(b=>b.ad+' <span style="color:var(--border)">('+b.sehir+')</span>').join(', ')}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div class="admin-card">
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px">Kullanıcısı Olmayan Müdürler</div>
+    ${mudurler.filter(m=>!users.find(u=>u.mudur===m)).length === 0
+      ? '<div style="color:var(--green);font-size:13px">✅ Tüm müdürlerin kullanıcısı tanımlı.</div>'
+      : mudurler.filter(m=>!users.find(u=>u.mudur===m)).map(m =>
+          `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+            <span style="color:var(--accent)">⚠️</span>
+            <span style="font-weight:600">${m}</span>
+            <span style="font-size:12px;color:var(--muted)">için kullanıcı hesabı tanımlı değil — Kullanıcılar sekmesinden ekleyin.</span>
+          </div>`
+        ).join('')
+    }
+  </div>`;
+}
+
+function etkFc(n) { if(n>=1000) return '₺'+(n/1000).toFixed(0)+'K'; return '₺'+n; }
+function etkFcf(n) { return '₺'+n.toLocaleString('tr-TR'); }
 
 // ============================================================
 // INIT
