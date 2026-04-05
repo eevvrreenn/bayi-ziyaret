@@ -3956,13 +3956,31 @@ function adminApplyBayiler(list) {
 // ── Supabase'e kaydet ────────────────────────────────────────
 async function adminSaveConfig(key, value) {
   try {
-    // upsert: varsa güncelle, yoksa ekle
-    await sbFetch(`app_config`, {
-      method: 'POST',
-      prefer: 'resolution=merge-duplicates,return=minimal',
-      headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ key, value: JSON.stringify(value) })
+    const payload = JSON.stringify({ key, value: JSON.stringify(value) });
+    // Önce mevcut kaydı kontrol et
+    const existing = await fetch(`${SUPABASE_URL}/rest/v1/app_config?key=eq.${encodeURIComponent(key)}`, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json'
+      }
     });
+    const rows = existing.ok ? await existing.json() : [];
+    const method = rows.length > 0 ? 'PATCH' : 'POST';
+    const url = rows.length > 0
+      ? `${SUPABASE_URL}/rest/v1/app_config?key=eq.${encodeURIComponent(key)}`
+      : `${SUPABASE_URL}/rest/v1/app_config`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: payload
+    });
+    if (!res.ok) { const t = await res.text(); throw new Error(`${res.status}: ${t}`); }
     return true;
   } catch(e) {
     toast('⚠️ Kayıt başarısız: ' + e.message, 'red');
@@ -4057,7 +4075,9 @@ function adminInjectTabCSS() {
 
 // ── KULLANICILAR SEKMESI ──────────────────────────────────────
 function adminRenderUsers(c) {
-  const users = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  // Render sırasında çalışma kopyasını taze başlat
+  _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
+  const users = _adminUsersData;
 
   c.innerHTML = `
   <div class="admin-card">
@@ -4119,17 +4139,17 @@ function adminUserRow(u, i) {
 
 let _adminUsersData = null;
 function adminUserField(i, field, val) {
-  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
   _adminUsersData[i][field] = val;
 }
 function adminAddUser() {
-  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
   const mudurDefault = BAYILER.length ? BAYILER[0].mudur : '';
   _adminUsersData.push({ username:'', password:'', ad:'', role:'mudur', mudur: mudurDefault });
   adminRenderTab();
 }
 function adminDelUser(i) {
-  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
   if (!confirm(`"${_adminUsersData[i].ad || _adminUsersData[i].username}" kullanıcısını silmek istediğinize emin misiniz?`)) return;
   _adminUsersData.splice(i, 1);
   adminRenderTab();
@@ -4144,7 +4164,7 @@ async function adminSaveUsers() {
   btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…';
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_USERS, _adminUsersData);
   if (ok) {
-    ADMIN_USERS_RT = _adminUsersData;
+    ADMIN_USERS_RT = JSON.parse(JSON.stringify(_adminUsersData));
     adminApplyUsers(_adminUsersData);
     _adminUsersData = null;
     st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR');
@@ -4156,7 +4176,11 @@ async function adminSaveUsers() {
 
 // ── BAYİLER SEKMESI ───────────────────────────────────────────
 function adminRenderBayiler(c) {
-  const bayiler = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  // Render sırasında çalışma kopyasını taze başlat (filtre sıfırlanmadan)
+  if (!_adminBayilerData) {
+    _adminBayilerData = ADMIN_BAYILER_RT ? JSON.parse(JSON.stringify(ADMIN_BAYILER_RT)) : JSON.parse(JSON.stringify(BAYILER));
+  }
+  const bayiler = _adminBayilerData;
   const mudurler = [...new Set(bayiler.map(b=>b.mudur))].sort();
 
   // Filtre
@@ -4217,17 +4241,17 @@ function adminRenderBayiler(c) {
 
 let _adminBayilerData = null;
 function adminBayiField(i, field, val) {
-  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? JSON.parse(JSON.stringify(ADMIN_BAYILER_RT)) : JSON.parse(JSON.stringify(BAYILER));
   _adminBayilerData[i][field] = val;
 }
 function adminAddBayi() {
-  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? JSON.parse(JSON.stringify(ADMIN_BAYILER_RT)) : JSON.parse(JSON.stringify(BAYILER));
   const mudurDefault = _adminBayilerData.length ? _adminBayilerData[0].mudur : '';
   _adminBayilerData.push({ ad:'', sehir:'', mudur: mudurDefault });
   adminRenderTab();
 }
 function adminDelBayi(i) {
-  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? JSON.parse(JSON.stringify(ADMIN_BAYILER_RT)) : JSON.parse(JSON.stringify(BAYILER));
   if (!confirm(`"${_adminBayilerData[i].ad || 'bu bayi'}"yi silmek istediğinize emin misiniz?`)) return;
   _adminBayilerData.splice(i, 1);
   adminRenderTab();
@@ -4256,7 +4280,7 @@ async function adminSaveBayiler() {
   btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…';
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_BAYILER, _adminBayilerData);
   if (ok) {
-    ADMIN_BAYILER_RT = _adminBayilerData;
+    ADMIN_BAYILER_RT = JSON.parse(JSON.stringify(_adminBayilerData));
     adminApplyBayiler(_adminBayilerData);
     _adminBayilerData = null;
     // Kullanıcılar da değiştiyse kaydet
