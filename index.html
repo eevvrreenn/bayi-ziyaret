@@ -2468,6 +2468,9 @@ async function doLogin() {
   // Taslak kontrolü
   if (!checkAndOfferDraft()) renderYeniRapor();
 
+  // Session'a kaydet — F5 sonrası otomatik giriş için
+  sessionStorage.setItem('bz_user', JSON.stringify({ username: user.username, password: user.password }));
+
   const overlay = document.getElementById('login-overlay');
   overlay.classList.add('fade-out');
   setTimeout(() => overlay.style.display = 'none', 400);
@@ -2477,6 +2480,7 @@ function doLogout() {
   stopDraftTimer();
   currentUser = null;
   raporlar = [];
+  sessionStorage.removeItem('bz_user');
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
   const overlay = document.getElementById('login-overlay');
@@ -3955,9 +3959,11 @@ async function adminLoadConfig() {
 function adminApplyUsers(list) {
   USERS.length = 0;
   list.forEach(function(u){ USERS.push(u); });
-  // MUDURLER listesini de güncelle
+  // MUDURLER listesini güncelle (USERS'dan türet)
   MUDURLER.length = 0;
   getMudurListesi().forEach(function(m){ MUDURLER.push(m); });
+  // Bayiler ve Özet sekmesi yenilensin — cache temizle
+  _adminBayilerData = null;
 }
 
 function adminApplyBayiler(list) {
@@ -4182,11 +4188,11 @@ async function adminSaveUsers() {
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_USERS, _adminUsersData);
   if (ok) {
     ADMIN_USERS_RT = JSON.parse(JSON.stringify(_adminUsersData));
-    adminApplyUsers(_adminUsersData);
+    adminApplyUsers(_adminUsersData); // _adminBayilerData'yı da null yapar
 
     st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR');
     st.style.color = 'var(--green)';
-    toast('✅ Kullanıcılar güncellendi!', 'green');
+    toast('✅ Kullanıcılar güncellendi! Bayiler ve Müdür Özeti sekmeleri güncellendi.', 'green');
   }
   btn.disabled = false; btn.textContent = '💾 Kaydet';
 }
@@ -4371,6 +4377,20 @@ function etkFcf(n) { return '₺'+n.toLocaleString('tr-TR'); }
   document.getElementById('config-overlay').style.display = 'none';
   const loginEl = document.getElementById('login-overlay');
   loginEl.style.cssText = 'display:flex !important; position:fixed; inset:0; background:var(--dark); align-items:center; justify-content:center; z-index:9000;';
+
+  // F5 sonrası otomatik giriş — session varsa tekrar login ekranı gösterme
+  const saved = sessionStorage.getItem('bz_user');
+  if (saved) {
+    try {
+      const s = JSON.parse(saved);
+      document.getElementById('login-user').value = s.username || '';
+      document.getElementById('login-pass').value = s.password || '';
+      // Kısa gecikmeyle otomatik giriş yap (DOM hazır olsun)
+      setTimeout(function() { doLogin(); }, 100);
+    } catch(e) {
+      sessionStorage.removeItem('bz_user');
+    }
+  }
 })();
 </script>
 </body>
