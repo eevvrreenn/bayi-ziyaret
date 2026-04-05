@@ -677,7 +677,7 @@ function saveConfig() {
 // ============================================================
 // DATA
 // ============================================================
-const BAYILER = [
+let BAYILER = [
   {ad:"Tekbaş",sehir:"Adana",mudur:"Barış Anafarta"},
   {ad:"Ersin",sehir:"Adapazarı",mudur:"Barış İnselel"},
   {ad:"Işık",sehir:"Adıyaman",mudur:"Doğan Bağcağız"},
@@ -735,7 +735,18 @@ const BAYILER = [
   {ad:"Nitko",sehir:"Tekirdağ",mudur:"Yiğit Yavuz"},
 ];
 
-const MUDURLER = [...new Set(BAYILER.map(b=>b.mudur))];
+let MUDURLER = [...new Set(BAYILER.map(b=>b.mudur))];
+
+// Müdür listesini her zaman USERS'dan türet (BAYILER'den bağımsız)
+function getMudurListesi() {
+  var aktifUsers = ADMIN_USERS_RT || USERS;
+  var fromUsers = aktifUsers
+    .filter(function(u){ return u.role === 'mudur'; })
+    .map(function(u){ return (u.mudur||u.ad||'').trim(); })
+    .filter(Boolean);
+  var fromBayiler = (ADMIN_BAYILER_RT || BAYILER).map(function(b){ return b.mudur; }).filter(Boolean);
+  return [...new Set([...fromUsers, ...fromBayiler])].sort();
+}
 
 const TEST_MODELLER = ["PCX-125","SH125","CB125F","CL250 E-Clutch","Forza250","ADV350","500 Serisi","750 Serisi"];
 
@@ -2405,7 +2416,7 @@ function downloadExcel(id) {
   XLSX.writeFile(wb, `ZiyaretRaporu_${r.bayi}_${r.tarih}.xlsx`);
   toast('✓ Excel indirildi!');
 }
-const USERS = [
+let USERS = [
   { username: 'b.anafarta',  password: 'Honda2026!', ad: 'Barış Anafarta',  mudur: 'Barış Anafarta',  role: 'mudur' },
   { username: 'b.inselel',   password: 'Honda2026!', ad: 'Barış İnselel',   mudur: 'Barış İnselel',   role: 'mudur' },
   { username: 'd.bagcagiz',  password: 'Honda2026!', ad: 'Doğan Bağcağız',  mudur: 'Doğan Bağcağız',  role: 'mudur' },
@@ -3930,7 +3941,7 @@ let ADMIN_BAYILER_RT = null;
 // ── Supabase'den config yükle (login sırasında çağrılır) ─────
 async function adminLoadConfig() {
   try {
-    const rows = await sbFetch(`app_config?key=in.(${ADMIN_CFG_KEY_USERS},${ADMIN_CFG_KEY_BAYILER})&select=key,value`);
+    const rows = await sbFetch(`pp_kv_store?key=in.(${ADMIN_CFG_KEY_USERS},${ADMIN_CFG_KEY_BAYILER})&select=key,value`);
     rows.forEach(r => {
       if (r.key === ADMIN_CFG_KEY_USERS  && r.value) ADMIN_USERS_RT   = JSON.parse(r.value);
       if (r.key === ADMIN_CFG_KEY_BAYILER && r.value) ADMIN_BAYILER_RT = JSON.parse(r.value);
@@ -3942,48 +3953,49 @@ async function adminLoadConfig() {
 }
 
 function adminApplyUsers(list) {
-  // USERS dizisini güncelle (const olduğundan içini değiştir)
   USERS.length = 0;
-  list.forEach(u => USERS.push(u));
+  list.forEach(function(u){ USERS.push(u); });
+  // MUDURLER listesini de güncelle
+  MUDURLER.length = 0;
+  getMudurListesi().forEach(function(m){ MUDURLER.push(m); });
 }
 
 function adminApplyBayiler(list) {
   BAYILER.length = 0;
-  list.forEach(b => BAYILER.push(b));
-  // MUDURLER dinamik türetildiği için sidebar da güncellenecek
+  list.forEach(function(b){ BAYILER.push(b); });
+  // MUDURLER'i yeniden türet (USERS + BAYILER)
+  MUDURLER.length = 0;
+  getMudurListesi().forEach(function(m){ MUDURLER.push(m); });
 }
 
 // ── Supabase'e kaydet ────────────────────────────────────────
 async function adminSaveConfig(key, value) {
+  const url = SUPABASE_URL + '/rest/v1/pp_kv_store';
+  const body = JSON.stringify({ key: key, value: JSON.stringify(value) });
   try {
-    const payload = JSON.stringify({ key, value: JSON.stringify(value) });
-    // Önce mevcut kaydı kontrol et
-    const existing = await fetch(`${SUPABASE_URL}/rest/v1/app_config?key=eq.${encodeURIComponent(key)}`, {
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    const rows = existing.ok ? await existing.json() : [];
-    const method = rows.length > 0 ? 'PATCH' : 'POST';
-    const url = rows.length > 0
-      ? `${SUPABASE_URL}/rest/v1/app_config?key=eq.${encodeURIComponent(key)}`
-      : `${SUPABASE_URL}/rest/v1/app_config`;
     const res = await fetch(url, {
-      method,
+      method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
         'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
       },
-      body: payload
+      body: body
     });
-    if (!res.ok) { const t = await res.text(); throw new Error(`${res.status}: ${t}`); }
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(res.status + ': ' + t);
+    }
     return true;
   } catch(e) {
-    toast('⚠️ Kayıt başarısız: ' + e.message, 'red');
+    // Detaylı hata: URL, mesaj ve olası sebep
+    const detail = e.message || String(e);
+    const hint = detail.includes('Failed to fetch')
+      ? ' (Supabase bağlantısı kurulamadı — URL: ' + url + ')'
+      : '';
+    toast('⚠️ Kayıt başarısız: ' + detail + hint, 'red');
+    console.error('adminSaveConfig hata:', { url, key, error: e });
     return false;
   }
 }
@@ -4014,6 +4026,11 @@ function renderAdminPanel() {
 }
 
 function adminSetTab(tab) {
+  // Sekme değişince çalışma verilerini sıfırla
+  if (tab !== adminTab) {
+    _adminUsersData = null;
+    _adminBayilerData = null;
+  }
   adminTab = tab;
   document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(tab==='users'?'kullanıcı':tab==='bayiler'?'bayi':'müdür')));
   adminRenderTab();
@@ -4075,8 +4092,10 @@ function adminInjectTabCSS() {
 
 // ── KULLANICILAR SEKMESI ──────────────────────────────────────
 function adminRenderUsers(c) {
-  // Render sırasında çalışma kopyasını taze başlat
-  _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
+  // Sadece ilk açılışta başlat; ekle/sil sonrası mevcut veriyi koru
+  if (!_adminUsersData) {
+    _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
+  }
   const users = _adminUsersData;
 
   c.innerHTML = `
@@ -4091,7 +4110,7 @@ function adminRenderUsers(c) {
     <div style="overflow-x:auto">
     <table class="admin-tbl" id="admin-users-tbl">
       <thead><tr>
-        <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Şifre</th><th>Rol</th><th>Müdür (bağlı bayi grubu)</th><th></th>
+        <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Şifre</th><th>Rol</th><th></th>
       </tr></thead>
       <tbody id="admin-users-tbody">
       ${users.map((u,i) => adminUserRow(u, i)).join('')}
@@ -4107,30 +4126,22 @@ function adminRenderUsers(c) {
     <div style="font-size:12px;color:var(--yellow);font-weight:600;margin-bottom:6px">⚠️ Önemli Notlar</div>
     <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8">
       <li>Şifreler düz metin olarak saklanır — güçlü şifre kullanın.</li>
-      <li>"Müdür" alanı, müdür rolü için hangi bayi grubunun gösterileceğini belirler. Bayiler sekmesindeki müdür adıyla birebir eşleşmeli.</li>
-      <li>Admin rolünde "Müdür" alanı boş bırakılabilir.</li>
+
       <li>Değişiklikler "Kaydet" butonuna basılmadan kaydedilmez.</li>
     </ul>
   </div>`;
 }
 
 function adminUserRow(u, i) {
-  const mudurOptions = [...new Set(BAYILER.map(b=>b.mudur))];
-  const mudurSel = mudurOptions.map(m => `<option value="${m}" ${u.mudur===m?'selected':''}>${m}</option>`).join('');
+
   return `<tr id="admin-urow-${i}">
-    <td><input class="admin-inp" style="width:130px" value="${u.username||''}" onchange="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
-    <td><input class="admin-inp" style="width:150px" value="${u.ad||''}" onchange="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
-    <td><input class="admin-inp" style="width:130px" type="text" value="${u.password||''}" onchange="adminUserField(${i},'password',this.value)" placeholder="Şifre"></td>
+    <td><input class="admin-inp" style="width:130px" value="${(u.username||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
+    <td><input class="admin-inp" style="width:150px" value="${(u.ad||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
+    <td><input class="admin-inp" style="width:130px" type="text" value="${(u.password||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'password',this.value)" placeholder="Şifre"></td>
     <td>
       <select class="admin-sel" style="width:110px" onchange="adminUserField(${i},'role',this.value)">
-        <option value="mudur" ${u.role==='mudur'?'selected':''}>Müdür</option>
+        <option value="mudur" ${(u.role||'mudur')==='mudur'?'selected':''}>Müdür</option>
         <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-      </select>
-    </td>
-    <td>
-      <select class="admin-sel" style="width:170px" onchange="adminUserField(${i},'mudur',this.value)">
-        <option value="">— (Admin için boş) —</option>
-        ${mudurSel}
       </select>
     </td>
     <td><button class="admin-del-btn" onclick="adminDelUser(${i})">Sil</button></td>
@@ -4144,29 +4155,35 @@ function adminUserField(i, field, val) {
 }
 function adminAddUser() {
   if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
-  const mudurDefault = BAYILER.length ? BAYILER[0].mudur : '';
+  const mudurOptions = getMudurListesi();
+  const mudurDefault = mudurOptions.length ? mudurOptions[0] : '';
   _adminUsersData.push({ username:'', password:'', ad:'', role:'mudur', mudur: mudurDefault });
   adminRenderTab();
 }
 function adminDelUser(i) {
+  i = parseInt(i);
   if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
-  if (!confirm(`"${_adminUsersData[i].ad || _adminUsersData[i].username}" kullanıcısını silmek istediğinize emin misiniz?`)) return;
+  const u = _adminUsersData[i];
+  if (!u) return;
+  const label = (u.ad || u.username || 'Bu kullanıcı');
+  if (!confirm(label + ' silinecek. Emin misiniz?')) return;
   _adminUsersData.splice(i, 1);
   adminRenderTab();
 }
 async function adminSaveUsers() {
   const btn = document.getElementById('admin-save-users-btn');
   const st  = document.getElementById('admin-users-status');
-  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+  if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
   // Boş kullanıcı adı kontrolü
-  const invalid = _adminUsersData.find(u => !u.username.trim() || !u.password.trim());
-  if (invalid) { toast('Kullanıcı adı ve şifre boş bırakılamaz!', 'red'); return; }
+  const invalid = _adminUsersData.find(u => !(u.username||'').trim() || !(u.password||'').trim());
+  if (invalid) { toast('Lütfen tüm kullanıcıların kullanıcı adı ve şifresini doldurun!', 'red'); return; }
+
   btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…';
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_USERS, _adminUsersData);
   if (ok) {
     ADMIN_USERS_RT = JSON.parse(JSON.stringify(_adminUsersData));
     adminApplyUsers(_adminUsersData);
-    _adminUsersData = null;
+
     st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR');
     st.style.color = 'var(--green)';
     toast('✅ Kullanıcılar güncellendi!', 'green');
@@ -4181,7 +4198,7 @@ function adminRenderBayiler(c) {
     _adminBayilerData = ADMIN_BAYILER_RT ? JSON.parse(JSON.stringify(ADMIN_BAYILER_RT)) : JSON.parse(JSON.stringify(BAYILER));
   }
   const bayiler = _adminBayilerData;
-  const mudurler = [...new Set(bayiler.map(b=>b.mudur))].sort();
+  const mudurler = getMudurListesi();
 
   // Filtre
   const filterMudur = document.getElementById('admin-bayi-filter')?.value || '';
@@ -4213,7 +4230,7 @@ function adminRenderBayiler(c) {
       <tbody>
       ${filtered.map((b) => {
         const realIdx = bayiler.indexOf(b);
-        const mudurSel = [...new Set(BAYILER.map(x=>x.mudur))].sort()
+        const mudurSel = getMudurListesi()
           .map(m=>`<option value="${m}" ${b.mudur===m?'selected':''}>${m}</option>`).join('');
         return `<tr>
           <td style="color:var(--muted);font-size:11px;width:36px">${realIdx+1}</td>
@@ -4259,13 +4276,13 @@ function adminDelBayi(i) {
 function adminAddMudur() {
   const ad = prompt('Yeni müdür adını girin:');
   if (!ad || !ad.trim()) return;
-  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? JSON.parse(JSON.stringify(ADMIN_BAYILER_RT)) : JSON.parse(JSON.stringify(BAYILER));
   _adminBayilerData.push({ ad:'', sehir:'', mudur: ad.trim() });
   // USERS'a da ekle — prompt
   const username = prompt(`"${ad.trim()}" için kullanıcı adı girin:`);
   const password = prompt(`"${ad.trim()}" için şifre girin:`);
   if (username && password) {
-    if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? [...ADMIN_USERS_RT] : [...USERS];
+    if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
     _adminUsersData.push({ username: username.trim(), password: password.trim(), ad: ad.trim(), role:'mudur', mudur: ad.trim() });
   }
   adminRenderTab();
@@ -4274,17 +4291,15 @@ function adminAddMudur() {
 async function adminSaveBayiler() {
   const btn = document.getElementById('admin-save-bayiler-btn');
   const st  = document.getElementById('admin-bayiler-status');
-  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? [...ADMIN_BAYILER_RT] : [...BAYILER];
-  const invalid = _adminBayilerData.find(b => !b.ad.trim());
-  if (invalid) { toast('Bayi adı boş bırakılamaz!', 'red'); return; }
+  if (!_adminBayilerData) _adminBayilerData = ADMIN_BAYILER_RT ? JSON.parse(JSON.stringify(ADMIN_BAYILER_RT)) : JSON.parse(JSON.stringify(BAYILER));
+  const invalid = _adminBayilerData.find(b => !(b.ad||'').trim());
+  if (invalid) { toast('Lütfen tüm bayilerin adını doldurun!', 'red'); return; }
   btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…';
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_BAYILER, _adminBayilerData);
   if (ok) {
     ADMIN_BAYILER_RT = JSON.parse(JSON.stringify(_adminBayilerData));
     adminApplyBayiler(_adminBayilerData);
-    _adminBayilerData = null;
-    // Kullanıcılar da değiştiyse kaydet
-    if (_adminUsersData) await adminSaveUsers();
+    // _adminBayilerData'yı null yapmıyoruz — tablodaki değişiklikler korunsun
     st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR');
     st.style.color = 'var(--green)';
     toast('✅ Bayiler güncellendi!', 'green');
@@ -4295,43 +4310,54 @@ async function adminSaveBayiler() {
 
 // ── MÜDÜR ÖZETİ SEKMESI ──────────────────────────────────────
 function adminRenderMudurOzet(c) {
-  const bayiler = ADMIN_BAYILER_RT || BAYILER;
-  const mudurler = [...new Set(bayiler.map(b=>b.mudur))].sort();
-  const users    = ADMIN_USERS_RT  || USERS;
+  var bayiler = ADMIN_BAYILER_RT || BAYILER;
+  var users   = ADMIN_USERS_RT   || USERS;
 
-  c.innerHTML = `
-  <div class="admin-card">
-    <div style="font-size:14px;font-weight:700;margin-bottom:14px">Müdür — Bayi Dağılımı</div>
-    <table class="admin-tbl">
-      <thead><tr><th>Müdür</th><th>Rol</th><th>Kullanıcı Adı</th><th>Bayi Sayısı</th><th>Bayiler</th></tr></thead>
-      <tbody>
-      ${mudurler.map(m => {
-        const u = users.find(x=>x.mudur===m);
-        const bs = bayiler.filter(b=>b.mudur===m);
-        return `<tr>
-          <td style="font-weight:700">${m}</td>
-          <td>${u ? `<span class="admin-badge ${u.role==='admin'?'admin-badge-admin':'admin-badge-mudur'}">${u.role==='admin'?'Admin':'Müdür'}</span>` : '<span style="color:var(--muted);font-size:11px">Kullanıcı yok</span>'}</td>
-          <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)">${u ? u.username : '—'}</td>
-          <td style="font-weight:700;color:var(--red)">${bs.length}</td>
-          <td style="font-size:12px;color:var(--muted);max-width:300px">${bs.map(b=>b.ad+' <span style="color:var(--border)">('+b.sehir+')</span>').join(', ')}</td>
-        </tr>`;
-      }).join('')}
-      </tbody>
-    </table>
-  </div>
-  <div class="admin-card">
-    <div style="font-size:14px;font-weight:700;margin-bottom:14px">Kullanıcısı Olmayan Müdürler</div>
-    ${mudurler.filter(m=>!users.find(u=>u.mudur===m)).length === 0
-      ? '<div style="color:var(--green);font-size:13px">✅ Tüm müdürlerin kullanıcısı tanımlı.</div>'
-      : mudurler.filter(m=>!users.find(u=>u.mudur===m)).map(m =>
-          `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-            <span style="color:var(--accent)">⚠️</span>
-            <span style="font-weight:600">${m}</span>
-            <span style="font-size:12px;color:var(--muted)">için kullanıcı hesabı tanımlı değil — Kullanıcılar sekmesinden ekleyin.</span>
-          </div>`
-        ).join('')
-    }
-  </div>`;
+  var mudurlerSet = new Set(
+    bayiler.map(function(b){ return b.mudur; }).filter(Boolean).concat(
+    users.filter(function(u){ return u.role==='mudur' && (u.mudur||'').trim(); }).map(function(u){ return u.mudur.trim(); })).concat(
+    users.filter(function(u){ return u.role==='mudur' && !(u.mudur||'').trim() && (u.ad||'').trim(); }).map(function(u){ return u.ad.trim(); }))
+  );
+  var mudurler = Array.from(mudurlerSet).sort();
+
+  var rows = mudurler.map(function(m) {
+    var u = users.find(function(x){ return x.mudur===m || (!(x.mudur||'').trim() && x.ad===m); });
+    var bs = bayiler.filter(function(b){ return b.mudur===m && b.ad!=='(Bayi ekleyin)'; });
+    var rolBadge = u
+      ? '<span class="admin-badge '+(u.role==='admin'?'admin-badge-admin':'admin-badge-mudur')+'">'+(u.role==='admin'?'Admin':'Müdür')+'</span>'
+      : '<span style="color:var(--muted);font-size:11px">Kullanıcı yok</span>';
+    var bayiStr = bs.length
+      ? bs.map(function(b){ return b.ad+' ('+b.sehir+')'; }).join(', ')
+      : '<span style="color:var(--yellow)">Henüz bayi atanmadı</span>';
+    return '<tr>'
+      +'<td style="font-weight:700">'+m+'</td>'
+      +'<td>'+rolBadge+'</td>'
+      +'<td style="font-family:IBM Plex Mono,monospace;font-size:12px;color:var(--muted)">'+(u?u.username:'—')+'</td>'
+      +'<td style="font-weight:700;color:var(--red)">'+bs.length+'</td>'
+      +'<td style="font-size:12px;color:var(--muted);max-width:300px">'+bayiStr+'</td>'
+      +'</tr>';
+  }).join('');
+
+  var noUserList = mudurler.filter(function(m){ return !users.find(function(u){ return u.mudur===m||u.ad===m; }); });
+  var noUserHtml = noUserList.length === 0
+    ? '<div style="color:var(--green);font-size:13px">✅ Tüm müdürlerin kullanıcısı tanımlı.</div>'
+    : noUserList.map(function(m){
+        return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">'
+          +'<span style="color:var(--accent)">⚠️</span>'
+          +'<span style="font-weight:600">'+m+'</span>'
+          +'<span style="font-size:12px;color:var(--muted)">için kullanıcı hesabı tanımlı değil — Kullanıcılar sekmesinden ekleyin.</span>'
+          +'</div>';
+      }).join('');
+
+  c.innerHTML =
+    '<div class="admin-card">'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px">Müdür — Bayi Dağılımı</div>'
+    +'<table class="admin-tbl"><thead><tr><th>Müdür</th><th>Rol</th><th>Kullanıcı Adı</th><th>Bayi Sayısı</th><th>Bayiler</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div>'
+    +'<div class="admin-card">'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px">Kullanıcısı Olmayan Müdürler</div>'
+    +noUserHtml
+    +'</div>';
 }
 
 function etkFc(n) { if(n>=1000) return '₺'+(n/1000).toFixed(0)+'K'; return '₺'+n; }
