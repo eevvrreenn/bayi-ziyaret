@@ -4284,20 +4284,17 @@ async function ppApplyImport() {
 })();
 
 // ── VERİ ─────────────────────────────────────────────────────
-var ETK_acts = [
-  {id:'ACT-001',did:'u1',dn:'Istanbul Moto A.S.',reg:'Marmara',title:'Bahar Test Sürüşü Festivali',type:'Test Sürüşü',date:'2024-04-15',edate:'2024-04-16',loc:'İstanbul Yassıada',desc:'Yeni CB500F ve CB650R modellerini müşterilere tanıtma amacıyla 2 günlük etkinlik.',amt:45000,tgt:{td:60,sr:0,ct:15,sl:8},res:{td:74,sr:0,ct:18,sl:11},status:'completed',photos:['p1','p2','p3'],tl:[{date:'2024-03-20',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-03-22',lab:'BM Onayladı',s:'done',note:'Uygun bulundu.'},{date:'2024-03-24',lab:'SM Onayladı',s:'done',note:'Bütçe uygun.'},{date:'2024-04-20',lab:'Etkinlik Tamamlandı',s:'done',note:'Hedeflerin üzerinde.'}],ca:'2024-03-20',month:'2024-04',appAmt:42000},
-  {id:'ACT-002',did:'u1',dn:'Istanbul Moto A.S.',reg:'Marmara',title:'Showroom Açılış Özel Günü',type:'Showroom Etkinliği',date:'2024-05-10',edate:'2024-05-10',loc:'Kadıköy Showroom',desc:'Yenilenen showroom açılışı için özel gün. Kokteyl ve model tanıtımı.',amt:28000,tgt:{td:20,sr:150,ct:8,sl:4},res:null,status:'approved',photos:[],tl:[{date:'2024-04-01',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-04-05',lab:'Revizyon İstendi',s:'done',note:'Kokteyl bütçesi detaylandırılsın.'},{date:'2024-04-07',lab:'Revizyon Yapıldı',s:'done',note:''},{date:'2024-04-09',lab:'BM Onayladı',s:'done',note:''},{date:'2024-04-12',lab:'SM Onayladı',s:'done',note:'Onaylandı.'}],ca:'2024-04-01',month:'2024-05',appAmt:28000},
-  {id:'ACT-003',did:'u1',dn:'Istanbul Moto A.S.',reg:'Marmara',title:'Yaz Kampanyası Lansmanı',type:'Test Sürüşü',date:'2024-06-20',edate:'2024-06-22',loc:'Ataşehir Meydan',desc:'Yaz sezonu lansmanı. Yeni modeller ve test sürüşü imkânı.',amt:65000,tgt:{td:80,sr:200,ct:25,sl:15},res:null,status:'pending_bm',photos:[],tl:[{date:'2024-05-15',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-05-15',lab:'BM İncelemesini Bekliyor',s:'current',note:''}],ca:'2024-05-15',month:'2024-06',appAmt:null},
-  {id:'ACT-004',did:'u5',dn:'Ankara Honda Center',reg:'İç Anadolu',title:'Motosiklet Günleri',type:'Test Sürüşü',date:'2024-05-25',edate:'2024-05-26',loc:'TOBB ETÜ Kampüsü',desc:'Üniversite kampüsünde genç kullanıcı odaklı test sürüşü etkinliği.',amt:35000,tgt:{td:50,sr:120,ct:10,sl:5},res:{td:48,sr:135,ct:9,sl:5},status:'completed',photos:['p1'],tl:[{date:'2024-04-20',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-04-23',lab:'BM Onayladı',s:'done',note:''},{date:'2024-04-25',lab:'SM Onayladı',s:'done',note:''},{date:'2024-05-27',lab:'Tamamlandı',s:'done',note:''}],ca:'2024-04-20',month:'2024-05',appAmt:33000},
-  {id:'ACT-005',did:'u6',dn:'İzmir Moto Plaza',reg:'Ege',title:'Ege Turu Buluşması',type:'Topluluk Etkinliği',date:'2024-06-08',edate:'2024-06-09',loc:'Çeşme Marina',desc:'Honda kullanıcıları tur buluşması ve yeni üye kazanım etkinliği.',amt:22000,tgt:{td:30,sr:80,ct:5,sl:3},res:null,status:'revision_requested',photos:[],tl:[{date:'2024-05-01',lab:'Talep Oluşturuldu',s:'done',note:''},{date:'2024-05-04',lab:'Revizyon İstendi',s:'current',note:'Hedef rakamlar gerçekçi değil, revize edilsin.'}],ca:'2024-05-01',month:'2024-06',appAmt:null}
-];
+var ETK_acts = []; // Supabase'den yüklenir
 
-var ETK_SL = {draft:'Taslak',pending_bm:'BM Onayında',revision_requested:'Revizyon İstendi',approved_bm:'BM Onaylandı',approved:'Onaylandı',rejected:'Reddedildi',completed:'Tamamlandı'};
-var ETK_SB = {draft:'etk-bd0',pending_bm:'etk-bd1',revision_requested:'etk-bd2',approved_bm:'etk-bd3',approved:'etk-bd4',rejected:'etk-bd5',completed:'etk-bd6'};
-var ETK_RL = {mudur:'Bölge Müdürü',admin:'Yönetici'};
+var ETK_SL = {draft:'Taslak',pending_sm:'SM Onayında',pending_dir:'Direktör Onayında',revision_requested:'Revizyon İstendi',approved:'Onaylandı',rejected:'Reddedildi',completed:'Tamamlandı'};
+var ETK_SB = {draft:'etk-bd0',pending_sm:'etk-bd1',pending_dir:'etk-bd3',revision_requested:'etk-bd2',approved:'etk-bd4',rejected:'etk-bd5',completed:'etk-bd6'};
+var ETK_RL = {mudur:'Bölge Müdürü', satis_muduru:'Satış Müdürü', direktor:'Direktör', admin:'Yönetici'};
+var ETK_LIMIT = 200000; // TL — bu limitin üstü direktör onayı gerektirir
 var ETK_NAV = {
-  mudur:  [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'pending',ico:'⏳',lab:'Onay Bekleyenler',badge:true},{id:'allActs',ico:'📋',lab:'Tüm Etkinlikler'},{id:'reports',ico:'📈',lab:'Raporlar'}],
-  admin:  [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'allActs',ico:'📋',lab:'Tüm Etkinlikler'},{id:'reports',ico:'📈',lab:'Raporlar'}]
+  mudur:        [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'newAct',ico:'➕',lab:'Yeni Talep'},{id:'allActs',ico:'📋',lab:'Etkinliklerim'},{id:'reports',ico:'📈',lab:'Raporlar'}],
+  satis_muduru: [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'pending',ico:'⏳',lab:'Onay Bekleyenler',badge:true},{id:'allActs',ico:'📋',lab:'Tüm Etkinlikler'},{id:'reports',ico:'📈',lab:'Raporlar'}],
+  direktor:     [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'pending',ico:'⏳',lab:'Onay Bekleyenler',badge:true},{id:'allActs',ico:'📋',lab:'Tüm Etkinlikler'},{id:'reports',ico:'📈',lab:'Raporlar'}],
+  admin:        [{id:'dashboard',ico:'📊',lab:'Dashboard'},{id:'allActs',ico:'📋',lab:'Tüm Etkinlikler'},{id:'reports',ico:'📈',lab:'Raporlar'}]
 };
 
 var ETK_currentNav = 'dashboard';
@@ -4306,8 +4303,11 @@ var ETK_detailAct = null;
 // Rol köprüsü: ana uygulamanın rollerini etkinlik rollerine çevir
 function etkRole() {
   if (!currentUser) return 'mudur';
-  if (currentUser.role === 'admin') return 'admin';
-  return 'mudur'; // tüm müdürler BM gibi çalışır
+  var r = currentUser.role;
+  if (r === 'admin')         return 'admin';
+  if (r === 'satis_muduru')  return 'satis_muduru';
+  if (r === 'direktor')      return 'direktor';
+  return 'mudur';
 }
 
 function etkCu() {
@@ -4317,8 +4317,102 @@ function etkCu() {
 }
 
 // ── RENDER ANA FONKSİYON ──────────────────────────────────────
+// ── ETKİNLİK SUPABASE FONKSİYONLARI ─────────────────────────────
+
+async function etkLoadFromDb() {
+  try {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?select=*&order=created_at.desc', {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    if (!res.ok) return false;
+    var rows = await res.json();
+    ETK_acts = rows.map(function(r) {
+      return {
+        id:     r.id,
+        did:    r.did,
+        dn:     r.dn,
+        reg:    r.reg,
+        title:  r.title,
+        type:   r.type,
+        date:   r.date,
+        edate:  r.edate,
+        loc:    r.loc,
+        desc:   r.desc,
+        amt:    r.amt,
+        tgt:    r.tgt || {},
+        res:    r.res || null,
+        status: r.status,
+        photos: r.photos || [],
+        tl:     r.tl || [],
+        ca:     r.ca,
+        month:  r.month,
+        appAmt: r.appAmt || null
+      };
+    });
+    return true;
+  } catch(e) { console.warn('etkLoad error', e); return false; }
+}
+
+async function etkSaveToDb(act) {
+  try {
+    var body = {
+      id:     act.id,
+      did:    act.did,
+      dn:     act.dn,
+      reg:    act.reg,
+      title:  act.title,
+      type:   act.type,
+      date:   act.date,
+      edate:  act.edate,
+      loc:    act.loc,
+      desc:   act.desc,
+      amt:    act.amt,
+      tgt:    act.tgt,
+      res:    act.res,
+      status: act.status,
+      photos: act.photos,
+      tl:     act.tl,
+      ca:     act.ca,
+      month:  act.month,
+      appAmt: act.appAmt
+    };
+    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(body)
+    });
+    return res.ok;
+  } catch(e) { console.warn('etkSave error', e); return false; }
+}
+
+async function etkGenId() {
+  // Benzersiz ID üret: ETK-YYYYMMDD-XXX
+  var d = new Date();
+  var prefix = 'ETK-' + d.getFullYear()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0') + '-';
+  var existing = ETK_acts.filter(function(a){ return a.id.startsWith(prefix); });
+  return prefix + String(existing.length + 1).padStart(3,'0');
+}
+
 function renderEtkinlikPanel() {
   var cu = etkCu();
+  if (!cu) return;
+  // Supabase'den yükle, sonra render et
+  etkLoadFromDb().then(function() {
+    _etkRenderPanel(cu);
+  }).catch(function() {
+    _etkRenderPanel(cu);
+  });
+}
+
+function _etkRenderPanel(cu) {
+  cu = cu || etkCu();
   if (!cu) return;
   var navItems = ETK_NAV[cu.role] || ETK_NAV['mudur'];
   var pc = etkGetPc(cu);
@@ -4365,7 +4459,14 @@ function etkRenderContent() {
 }
 
 function etkGetPc(cu) {
-  if (cu.role === 'mudur') return ETK_acts.filter(function(a){return a.status==='pending_bm';}).length;
+  if (cu.role === 'satis_muduru') {
+    // Satış Müdürü: 200k altı, SM onayında olanlar
+    return ETK_acts.filter(function(a){ return a.status==='pending_sm' && a.amt <= ETK_LIMIT; }).length;
+  }
+  if (cu.role === 'direktor') {
+    // Direktör: 200k üstü, SM onayından geçmiş
+    return ETK_acts.filter(function(a){ return a.status==='pending_dir' && a.amt > ETK_LIMIT; }).length;
+  }
   return 0;
 }
 
@@ -4373,7 +4474,7 @@ function etkGetPc(cu) {
 function etkRenderDB(c, cu) {
   var acts = ETK_acts;
   var completed = acts.filter(function(a){return a.status==='completed';});
-  var pending   = acts.filter(function(a){return ['pending_bm','revision_requested','approved_bm'].includes(a.status);});
+  var pending   = acts.filter(function(a){return ['pending_sm','pending_dir','revision_requested'].includes(a.status);});
   var tb = completed.reduce(function(s,a){return s+(a.appAmt||0);},0);
 
   var html = '<div class="etk-tb"><div class="etk-tb-title">📊 Dashboard</div>'
@@ -4463,7 +4564,14 @@ function etkFilter() {
 
 // ── ONAY BEKLEYENLERl ────────────────────────────────────────
 function etkRenderPending(c, cu) {
-  var p = ETK_acts.filter(function(a){return a.status==='pending_bm';});
+  var p;
+  if (cu.role === 'satis_muduru') {
+    p = ETK_acts.filter(function(a){ return a.status==='pending_sm'; });
+  } else if (cu.role === 'direktor') {
+    p = ETK_acts.filter(function(a){ return a.status==='pending_dir'; });
+  } else {
+    p = [];
+  }
   if (!p.length) { c.innerHTML='<div class="etk-est"><div class="etk-esico">✅</div><p style="font-size:15px">Onay bekleyen talep yok</p></div>'; return; }
   c.innerHTML = '<div class="etk-tb"><div class="etk-tb-title">⏳ Onay Bekleyenler</div></div>'
     +'<p style="margin-bottom:12px;color:var(--muted);font-size:13px">'+p.length+' talep incelemenizi bekliyor</p>'
@@ -4473,11 +4581,21 @@ function etkRenderPending(c, cu) {
 // ── YENİ ETKİNLİK FORMU ──────────────────────────────────────
 function etkRenderNewForm(c, cu) {
   var today = new Date().toISOString().split('T')[0];
+
+  // Müdürün bölgesindeki bayileri filtrele
+  var bolge = currentUser ? currentUser.mudur : null;
+  var myBayiler = BAYILER.filter(function(b) { return b.mudur === bolge; });
+  var bayiOptions = myBayiler.map(function(b) {
+    return '<option value="'+b.ad+'|'+b.sehir+'">'+b.ad+' ('+b.sehir+')</option>';
+  }).join('');
+
   c.innerHTML = '<div class="etk-tb"><div class="etk-tb-title">+ Yeni Etkinlik Talebi</div></div>'
     +'<div class="etk-card"><div class="etk-ch"><div class="etk-ct">Etkinlik Bilgileri</div></div><div class="etk-cbp">'
     +'<div class="etk-sdiv">Genel</div>'
-    +'<div class="etk-fr"><div class="etk-fg"><label>Etkinlik Adı *</label><input id="etkFt" placeholder="Etkinlik başlığı"></div>'
+    +'<div class="etk-fr"><div class="etk-fg"><label>Bayi *</label><select id="etkFbayi">'
+    +'<option value="">— Bayi Seçin —</option>'+bayiOptions+'</select></div>'
     +'<div class="etk-fg"><label>Etkinlik Tipi</label><select id="etkFty"><option>Test Sürüşü</option><option>Showroom Etkinliği</option><option>Lansman</option><option>Topluluk Etkinliği</option><option>Fuar/Sergi</option><option>Diğer</option></select></div></div>'
+    +'<div class="etk-fg"><label>Etkinlik Adı *</label><input id="etkFt" placeholder="Etkinlik başlığı"></div></div>'
     +'<div class="etk-fr etk-fr3"><div class="etk-fg"><label>Başlangıç *</label><input type="date" id="etkFd" value="'+today+'"></div>'
     +'<div class="etk-fg"><label>Bitiş</label><input type="date" id="etkFed" value="'+today+'"></div>'
     +'<div class="etk-fg"><label>Lokasyon</label><input id="etkFl" placeholder="Şehir, Mekan"></div></div>'
@@ -4498,7 +4616,12 @@ function etkRenderNewForm(c, cu) {
     +'</div></div></div>';
 }
 
-function etkSaveAct(mode) {
+async function etkSaveAct(mode) {
+  var bayiVal = (document.getElementById('etkFbayi').value||'').trim();
+  if (!bayiVal) { toast('Bayi seçmelisiniz!', 'red'); return; }
+  var bayiParts = bayiVal.split('|');
+  var bayiAd  = bayiParts[0] || bayiVal;
+  var bayiSehir = bayiParts[1] || '';
   var title = (document.getElementById('etkFt').value||'').trim();
   if (!title) { toast('Etkinlik adı zorunlu!', 'red'); return; }
   var amt = parseInt(document.getElementById('etkFa').value)||0;
@@ -4506,21 +4629,27 @@ function etkSaveAct(mode) {
   var cu = etkCu();
   var td = new Date().toISOString().split('T')[0];
   var d  = document.getElementById('etkFd').value;
+  var newId = await etkGenId();
   var na = {
-    id: 'ACT-00'+(ETK_acts.length+1),
-    did: cu.id, dn: cu.name, reg: cu.region||'Marmara',
+    id: newId,
+    did: cu.id, dn: bayiAd, reg: bayiSehir || (cu.region||'-'),
     title: title, type: document.getElementById('etkFty').value,
     date: d, edate: document.getElementById('etkFed').value,
     loc: document.getElementById('etkFl').value||'-',
     desc: document.getElementById('etkFdesc').value||'',
     amt: amt,
     tgt: {td:parseInt(document.getElementById('etkFtd').value)||0, sr:parseInt(document.getElementById('etkFsr').value)||0, ct:parseInt(document.getElementById('etkFct').value)||0, sl:parseInt(document.getElementById('etkFsl').value)||0},
-    res: null, status: mode==='draft'?'draft':'pending_bm', photos: [],
-    tl: [{date:td,lab:mode==='draft'?'Taslak Oluşturuldu':'Talep Gönderildi',s:'done',note:''}].concat(mode==='submit'?[{date:td,lab:'BM İncelemesini Bekliyor',s:'current',note:''}]:[]),
+    res: null, status: mode==='draft'?'draft':'pending_sm', photos: [],
+    tl: [{date:td,lab:mode==='draft'?'Taslak Oluşturuldu':'Talep Gönderildi',s:'done',note:''}].concat(mode==='submit'?[{date:td,lab:'SM Onayı Bekleniyor',s:'current',note:''}]:[]),
     ca: td, month: d.substring(0,7), appAmt: null
   };
-  ETK_acts.unshift(na);
-  toast(mode==='draft'?'Taslak kaydedildi':'✅ Etkinlik talebi gönderildi!', 'green');
+  var ok = await etkSaveToDb(na);
+  if (ok) {
+    ETK_acts.unshift(na);
+    toast(mode==='draft'?'Taslak kaydedildi':'✅ Etkinlik talebi gönderildi!', 'green');
+  } else {
+    toast('Kayıt hatası! Bağlantı kontrol edin.', 'red');
+  }
   etkNav('allActs');
 }
 
@@ -4529,26 +4658,48 @@ function etkRenderDetail(c, cu, act) {
   if (!act) { c.innerHTML='<p style="padding:20px;color:var(--muted)">Etkinlik bulunamadı.</p>'; return; }
 
   var ab = '';
-  if (cu.role==='mudur' && act.status==='pending_bm') {
-    ab = '<button class="etk-btn etk-btn-success etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'approve\')">✓ Onayla</button>'
+  var bigAmt = act.amt > ETK_LIMIT;
+  // BM: kendi talebinde revizyon yapabilir
+  if (cu.role==='mudur' && act.status==='revision_requested' && act.did===cu.id) {
+    ab = '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkOpenRevMod(\''+act.id+'\')">✏️ Revizyon Yap</button>';
+  }
+  // Satış Müdürü: SM onayında olan talepler
+  if (cu.role==='satis_muduru' && act.status==='pending_sm') {
+    if (!bigAmt) {
+      ab = '<button class="etk-btn etk-btn-success etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'sm_approve\')">✓ Onayla</button>'
+         + '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkRevReq(\''+act.id+'\')">↩ Revizyon</button>'
+         + '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'reject\')">✕ Reddet</button>';
+    } else {
+      ab = '<button class="etk-btn etk-btn-success etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'sm_forward\')">→ Direktöre İlet</button>'
+         + '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkRevReq(\''+act.id+'\')">↩ Revizyon</button>'
+         + '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'reject\')">✕ Reddet</button>';
+    }
+  }
+  // Direktör: direktör onayında olan talepler (200k üstü)
+  if (cu.role==='direktor' && act.status==='pending_dir') {
+    ab = '<button class="etk-btn etk-btn-success etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'dir_approve\')">✓ Onayla</button>'
        + '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkRevReq(\''+act.id+'\')">↩ Revizyon</button>'
        + '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'reject\')">✕ Reddet</button>';
   }
-  if (cu.role==='mudur' && act.status==='revision_requested') {
-    ab = '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkOpenRevMod(\''+act.id+'\')">✏️ Revizyon Yap</button>';
-  }
-  if ((cu.role==='admin'||cu.role==='mudur') && act.status==='approved_bm') {
-    ab = '<button class="etk-btn etk-btn-success etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'final_approve\')">✓ Son Onay</button>'
-       + '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="etkAppAct(\''+act.id+'\',\'reject\')">✕ Reddet</button>';
-  }
-  if (act.status==='approved' && !act.res) {
+  // Sonuç girişi
+  if (cu.role==='mudur' && act.status==='approved' && !act.res && act.did===cu.id) {
     ab += '<button class="etk-btn etk-btn-primary etk-btn-sm" onclick="etkOpenResMod(\''+act.id+'\')">Sonuçları Gir</button>';
   }
 
-  var steps=['Talep','BM Onayı','Son Onay','Tamamlandı'];
-  var stepDone=[true,['approved_bm','approved','completed'].includes(act.status),['approved','completed'].includes(act.status),act.status==='completed'];
-  var stepCur=[false,act.status==='pending_bm'||act.status==='revision_requested',act.status==='approved_bm',act.status==='approved'];
-  var stepRej=[false,act.status==='rejected',false,false];
+  // Progress bar — tutara göre adım sayısı değişir
+  var steps = bigAmt
+    ? ['Talep','SM Onayı','Direktör Onayı','Tamamlandı']
+    : ['Talep','SM Onayı','Tamamlandı'];
+  var stepDone, stepCur, stepRej;
+  if (bigAmt) {
+    stepDone = [true, ['pending_dir','approved','completed'].includes(act.status), ['approved','completed'].includes(act.status), act.status==='completed'];
+    stepCur  = [false, act.status==='pending_sm'||act.status==='revision_requested', act.status==='pending_dir', act.status==='approved'];
+    stepRej  = [false, act.status==='rejected', false, false];
+  } else {
+    stepDone = [true, ['approved','completed'].includes(act.status), act.status==='completed'];
+    stepCur  = [false, act.status==='pending_sm'||act.status==='revision_requested', act.status==='approved'];
+    stepRej  = [false, act.status==='rejected', false];
+  }
 
   var progH = '<div style="display:flex;margin-bottom:20px">'+steps.map(function(s,i){
     var bg=stepDone[i]?'var(--green)':stepCur[i]?'var(--yellow)':stepRej[i]?'var(--accent)':'var(--border)';
@@ -4610,24 +4761,37 @@ function etkRenderDetail(c, cu, act) {
 }
 
 // ── ONAY / RED İŞLEMİ ────────────────────────────────────────
-function etkAppAct(id, action) {
+async function etkAppAct(id, action) {
   var act = ETK_acts.find(function(a){return a.id===id;});
   if (!act) return;
   var td = new Date().toISOString().split('T')[0];
-  if (action==='approve') {
-    act.status='approved_bm';
-    act.tl.push({date:td,lab:'BM Onayladı',s:'done',note:'Uygun bulundu.'});
-    act.tl.push({date:td,lab:'Son Onay Bekleniyor',s:'current',note:''});
-    toast('✅ Onaylandı — son onaya iletildi.', 'green');
-  } else if (action==='final_approve') {
+
+  if (action==='sm_approve') {
+    // Satış Müdürü onayladı → 200k altı direkt onaylandı
     act.status='approved'; act.appAmt=act.amt;
-    act.tl.push({date:td,lab:'Son Onay Verildi',s:'done',note:'Etkinlik gerçekleşebilir.'});
-    toast('✅ Son onay verildi!', 'green');
+    act.tl.push({date:td,lab:'Satış Müdürü Onayladı',s:'done',note:'Onaylandı.'});
+    toast('✅ Onaylandı!', 'green');
+
+  } else if (action==='sm_forward') {
+    // Satış Müdürü direktöre iletti → 200k üstü
+    act.status='pending_dir';
+    act.tl.push({date:td,lab:'Satış Müdürü İletti',s:'done',note:'Direktör onayına gönderildi.'});
+    act.tl.push({date:td,lab:'Direktör Onayı Bekleniyor',s:'current',note:''});
+    toast('→ Direktöre iletildi.', 'blue');
+
+  } else if (action==='dir_approve') {
+    // Direktör onayladı → 200k üstü
+    act.status='approved'; act.appAmt=act.amt;
+    act.tl.push({date:td,lab:'Direktör Onayladı',s:'done',note:'Onaylandı.'});
+    toast('✅ Direktör onayı verildi!', 'green');
+
   } else if (action==='reject') {
     act.status='rejected';
     act.tl.push({date:td,lab:'Reddedildi',s:'rej',note:''});
     toast('Etkinlik reddedildi.', 'red');
   }
+
+  await etkSaveToDb(act);
   ETK_detailAct = act;
   etkRenderContent();
 }
@@ -4642,13 +4806,14 @@ function etkRevReq(id) {
   );
 }
 
-function etkSubRevReq(id) {
+async function etkSubRevReq(id) {
   var note = (document.getElementById('etkRvn').value||'').trim();
   if (!note) { toast('Not yazın', 'red'); return; }
   var act = ETK_acts.find(function(a){return a.id===id;});
   var td = new Date().toISOString().split('T')[0];
-  act.status='revision_requested';
+  act.status='revision_requested'; // BM'nin revize etmesi bekleniyor
   act.tl.push({date:td,lab:'Revizyon İstendi',s:'current',note:note});
+  await etkSaveToDb(act);
   etkCloseMod();
   toast('Revizyon talebi gönderildi.', 'blue');
   ETK_detailAct = act;
@@ -4667,15 +4832,16 @@ function etkOpenRevMod(id) {
   );
 }
 
-function etkSubRev(id) {
+async function etkSubRev(id) {
   var act = ETK_acts.find(function(a){return a.id===id;});
   var td = new Date().toISOString().split('T')[0];
   act.desc = document.getElementById('etkRvd').value;
   act.amt = parseInt(document.getElementById('etkRva').value)||act.amt;
-  act.status = 'pending_bm';
+  act.status = 'pending_sm';
   act.tl = act.tl.filter(function(t){return t.s!=='current';});
   act.tl.push({date:td,lab:'Revizyon Yapıldı',s:'done',note:''});
-  act.tl.push({date:td,lab:'BM İncelemesini Bekliyor',s:'current',note:''});
+  act.tl.push({date:td,lab:'SM İncelemesini Bekliyor',s:'current',note:''});
+  await etkSaveToDb(act);
   etkCloseMod();
   toast('Revize talep gönderildi.', 'green');
   ETK_detailAct = act;
@@ -4699,7 +4865,7 @@ function etkOpenResMod(id) {
   );
 }
 
-function etkSubRes(id) {
+async function etkSubRes(id) {
   var act = ETK_acts.find(function(a){return a.id===id;});
   act.res = {
     td: parseInt(document.getElementById('etkRtd').value)||0,
@@ -4709,6 +4875,7 @@ function etkSubRes(id) {
   };
   act.status = 'completed';
   act.tl.push({date:new Date().toISOString().split('T')[0],lab:'Tamamlandı',s:'done',note:'Sonuçlar kaydedildi.'});
+  await etkSaveToDb(act);
   etkCloseMod();
   toast('✅ Sonuçlar kaydedildi!', 'green');
   ETK_detailAct = act;
@@ -4971,6 +5138,8 @@ function adminInjectTabCSS() {
   .admin-badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
   .admin-badge-admin { background:rgba(220,38,38,0.1); color:var(--accent); }
   .admin-badge-mudur { background:rgba(29,78,216,0.1); color:var(--blue); }
+  .admin-badge-satis_muduru { background:rgba(21,128,61,0.1); color:var(--green); }
+  .admin-badge-direktor { background:rgba(124,58,237,0.1); color:#7c3aed; }
   `;
   document.head.appendChild(s);
 }
@@ -5024,9 +5193,11 @@ function adminUserRow(u, i) {
     <td><input class="admin-inp" style="width:150px" value="${(u.ad||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
     <td><input class="admin-inp" style="width:130px" type="text" value="${(u.password||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'password',this.value)" placeholder="Şifre"></td>
     <td>
-      <select class="admin-sel" style="width:110px" onchange="adminUserField(${i},'role',this.value)">
-        <option value="mudur" ${(u.role||'mudur')==='mudur'?'selected':''}>Müdür</option>
-        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+      <select class="admin-sel" style="width:140px" onchange="adminUserField(${i},'role',this.value); adminRenderTab()">
+        <option value="mudur"        ${(u.role||'mudur')==='mudur'?'selected':''}>Bölge Müdürü</option>
+        <option value="satis_muduru" ${u.role==='satis_muduru'?'selected':''}>Satış Müdürü</option>
+        <option value="direktor"     ${u.role==='direktor'?'selected':''}>Direktör</option>
+        <option value="admin"        ${u.role==='admin'?'selected':''}>Admin</option>
       </select>
     </td>
     <td><button class="admin-del-btn" onclick="adminDelUser(${i})">Sil</button></td>
@@ -5043,6 +5214,7 @@ function adminAddUser() {
   const mudurOptions = getMudurListesi();
   const mudurDefault = mudurOptions.length ? mudurOptions[0] : '';
   _adminUsersData.push({ username:'', password:'', ad:'', role:'mudur', mudur: mudurDefault });
+  // mudur alanı sadece 'mudur' rolü için anlamlı
   adminRenderTab();
 }
 function adminDelUser(i) {
