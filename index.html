@@ -5082,6 +5082,7 @@ function adminSetTab(tab) {
   if (tab !== adminTab) {
     _adminUsersData = null;
     _adminBayilerData = null;
+    _adminPwdUnlocked = false; // kilit sıfırla
   }
   adminTab = tab;
   document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(tab==='users'?'kullanıcı':tab==='bayiler'?'bayi':'müdür')));
@@ -5164,7 +5165,7 @@ function adminRenderUsers(c) {
     <div style="overflow-x:auto">
     <table class="admin-tbl" id="admin-users-tbl">
       <thead><tr>
-        <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Şifre</th><th>Rol</th><th></th>
+        <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Şifre 🔒</th><th>Rol</th><th></th>
       </tr></thead>
       <tbody id="admin-users-tbody">
       ${users.map((u,i) => adminUserRow(u, i)).join('')}
@@ -5187,11 +5188,15 @@ function adminRenderUsers(c) {
 }
 
 function adminUserRow(u, i) {
-
+  var pwdVal = (u.password||'').replace(/"/g,'&quot;');
+  var pwdMasked = u.password ? '•'.repeat(Math.min(u.password.length, 10)) : '';
   return `<tr id="admin-urow-${i}">
     <td><input class="admin-inp" style="width:130px" value="${(u.username||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
     <td><input class="admin-inp" style="width:150px" value="${(u.ad||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
-    <td><input class="admin-inp" style="width:130px" type="text" value="${(u.password||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'password',this.value)" placeholder="Şifre"></td>
+    <td><div style="display:flex;gap:6px;align-items:center">
+      <input class="admin-inp" style="width:110px" type="password" id="pwd-inp-${i}" value="${pwdVal}" oninput="adminUserField(${i},'password',this.value)" placeholder="Şifre">
+      <button class="admin-del-btn" style="padding:5px 8px;font-size:11px;background:rgba(29,78,216,0.08);border-color:rgba(29,78,216,0.2);color:var(--blue)" onclick="adminShowPwd(${i})" title="Şifreyi Göster">👁</button>
+    </div></td>
     <td>
       <select class="admin-sel" style="width:140px" onchange="adminUserField(${i},'role',this.value); adminRenderTab()">
         <option value="mudur"        ${(u.role||'mudur')==='mudur'?'selected':''}>Bölge Müdürü</option>
@@ -5205,6 +5210,66 @@ function adminUserRow(u, i) {
 }
 
 let _adminUsersData = null;
+let _adminPwdUnlocked = false; // şifreler görünür mü
+
+function adminShowPwd(idx) {
+  if (_adminPwdUnlocked) {
+    // Zaten açık — direkt toggle et
+    var inp = document.getElementById('pwd-inp-' + idx);
+    if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+    return;
+  }
+  // Admin şifresi sor
+  adminPwdModal(function() {
+    _adminPwdUnlocked = true;
+    var inp = document.getElementById('pwd-inp-' + idx);
+    if (inp) inp.type = 'text';
+  });
+}
+
+function adminPwdModal(onSuccess) {
+  // Modal HTML
+  var existing = document.getElementById('admin-pwd-modal');
+  if (existing) existing.remove();
+  var modal = document.createElement('div');
+  modal.id = 'admin-pwd-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px 32px;min-width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.18)">'
+    + '<div style="font-size:15px;font-weight:700;margin-bottom:6px">🔒 Şifre Doğrulama</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:18px">Şifreleri görmek için admin şifrenizi girin.</div>'
+    + '<input id="admin-pwd-confirm" type="password" class="admin-inp" placeholder="Admin şifresi" style="margin-bottom:14px" onkeydown="if(event.keyCode===13)adminPwdCheck()">'
+    + '<div id="admin-pwd-err" style="display:none;color:var(--accent);font-size:12px;margin-bottom:10px">Şifre yanlış!</div>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end">'
+    + '<button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="adminClosePwdModal()">İptal</button>'
+    + '<button class="etk-btn etk-btn-primary etk-btn-sm" onclick="adminPwdCheck()">Doğrula</button>'
+    + '</div></div>';
+  document.body.appendChild(modal);
+  // Callback'i geçici olarak sakla
+  window._adminPwdCallback = onSuccess;
+  setTimeout(function(){ var el = document.getElementById('admin-pwd-confirm'); if(el) el.focus(); }, 50);
+}
+
+function adminClosePwdModal() {
+  var m = document.getElementById('admin-pwd-modal');
+  if (m) m.remove();
+}
+
+function adminPwdCheck() {
+  var inp = document.getElementById('admin-pwd-confirm');
+  if (!inp) return;
+  var val = inp.value;
+  // Admin kullanıcısının şifresiyle karşılaştır
+  var users = ADMIN_USERS_RT || USERS;
+  var adminUser = users.find(function(u){ return u.role === 'admin'; });
+  if (adminUser && val === adminUser.password) {
+    document.getElementById('admin-pwd-modal').remove();
+    if (window._adminPwdCallback) window._adminPwdCallback();
+  } else {
+    document.getElementById('admin-pwd-err').style.display = 'block';
+    inp.value = '';
+    inp.focus();
+  }
+}
 function adminUserField(i, field, val) {
   if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
   _adminUsersData[i][field] = val;
