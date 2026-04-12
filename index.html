@@ -768,7 +768,7 @@ function getMudurListesi() {
 const TEST_MODELLER = ["PCX-125","SH125","CB125F","CL250 E-Clutch","Forza250","ADV350","500 Serisi","750 Serisi"];
 
 let raporlar = [];
-let selectedMudur = getMudurListesi()[0] || MUDURLER[0];
+let selectedMudur = MUDURLER[0]; // login sonrası getMudurListesi() ile güncellenir
 let currentPage = 'yeni-rapor';
 let editingReport = null;
 
@@ -5468,6 +5468,14 @@ function etkFcf(n) { return '₺'+n.toLocaleString('tr-TR'); }
 // ============================================================
 (function() {
   // Config ekranı hiç gösterilmez, direkt login
+  // URL ve key'i input'lara da yaz (localStorage'dan veya sabit)
+  var savedUrl = localStorage.getItem('sb_url') || 'https://lplgqdnsleocmbilbiem.supabase.co';
+  var savedKey = localStorage.getItem('sb_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxwbGdxZG5zbGVvY21iaWxiaWVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjM5NjgsImV4cCI6MjA4OTY5OTk2OH0.b2-gE86CKadLeAzL72leFPxE2XlCupvq4GKI0I3CfBo';
+  document.getElementById('cfg-url').value = savedUrl;
+  document.getElementById('cfg-key').value = savedKey;
+  // localStorage'a da kaydet (ilk açılışta yoksa)
+  if (!localStorage.getItem('sb_url')) localStorage.setItem('sb_url', savedUrl);
+  if (!localStorage.getItem('sb_key')) localStorage.setItem('sb_key', savedKey);
   document.getElementById('config-overlay').style.display = 'none';
   const loginEl = document.getElementById('login-overlay');
   loginEl.style.cssText = 'display:flex !important; position:fixed; inset:0; background:var(--dark); align-items:center; justify-content:center; z-index:9000;';
