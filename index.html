@@ -4326,7 +4326,7 @@ function etkCu() {
 
 async function etkLoadFromDb() {
   try {
-    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?select=*&order=created_at.desc.nullslast', {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?select=*&order=created_at.desc', {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
     });
     if (!res.ok) return false;
@@ -5061,6 +5061,15 @@ function renderAdminPanel() {
       '<div style="padding:40px;text-align:center;color:var(--muted)">Bu sayfaya erişim yetkiniz yok.</div>';
     return;
   }
+  // Supabase'den taze yükle, sonra render et
+  adminLoadConfig().then(function() {
+    _renderAdminPanelInner();
+  }).catch(function() {
+    _renderAdminPanelInner();
+  });
+}
+
+function _renderAdminPanelInner() {
   document.getElementById('main-content').innerHTML = `
   <div style="padding:6px 0 18px">
     <div style="font-size:20px;font-weight:700;margin-bottom:4px">⚙️ Yönetim Paneli</div>
