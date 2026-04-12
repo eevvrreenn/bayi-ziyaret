@@ -748,7 +748,7 @@ let BAYILER = [
   {ad:"Nitko",sehir:"Tekirdağ",mudur:"Yiğit Yavuz"},
 ];
 
-let MUDURLER = [...new Set(BAYILER.map(b=>b.mudur))];
+let MUDURLER = [...new Set(BAYILER.map(b=>b.mudur))]; // başlangıçta BAYILER'den, sonra getMudurListesi() ile güncellenir
 
 // Müdür listesini her zaman USERS'dan türet (BAYILER'den bağımsız)
 function getMudurListesi() {
@@ -758,13 +758,17 @@ function getMudurListesi() {
     .map(function(u){ return (u.mudur||u.ad||'').trim(); })
     .filter(Boolean);
   var fromBayiler = (ADMIN_BAYILER_RT || BAYILER).map(function(b){ return b.mudur; }).filter(Boolean);
-  return [...new Set([...fromUsers, ...fromBayiler])].sort();
+  var liste = [...new Set([...fromUsers, ...fromBayiler])].sort();
+  // MUDURLER global'ini her seferinde güncelle — tek kaynak burası
+  MUDURLER.length = 0;
+  liste.forEach(function(m){ MUDURLER.push(m); });
+  return liste;
 }
 
 const TEST_MODELLER = ["PCX-125","SH125","CB125F","CL250 E-Clutch","Forza250","ADV350","500 Serisi","750 Serisi"];
 
 let raporlar = [];
-let selectedMudur = MUDURLER[0];
+let selectedMudur = getMudurListesi()[0] || MUDURLER[0];
 let currentPage = 'yeni-rapor';
 let editingReport = null;
 
@@ -2472,6 +2476,7 @@ async function doLogin() {
   currentUser = user;
 
   // Admin görür hepsini, müdür sadece kendisini
+  getMudurListesi(); // MUDURLER'i güncelle
   if (user.role === 'admin') {
     selectedMudur = MUDURLER[0];
   } else {
@@ -4321,7 +4326,7 @@ function etkCu() {
 
 async function etkLoadFromDb() {
   try {
-    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?select=*&order=created_at.desc', {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?select=*&order=created_at.desc.nullslast', {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
     });
     if (!res.ok) return false;
@@ -5005,19 +5010,14 @@ async function adminLoadConfig() {
 function adminApplyUsers(list) {
   USERS.length = 0;
   list.forEach(function(u){ USERS.push(u); });
-  // MUDURLER listesini güncelle (USERS'dan türet)
-  MUDURLER.length = 0;
-  getMudurListesi().forEach(function(m){ MUDURLER.push(m); });
-  // Bayiler ve Özet sekmesi yenilensin — cache temizle
+  getMudurListesi(); // MUDURLER'i güncelle
   _adminBayilerData = null;
 }
 
 function adminApplyBayiler(list) {
   BAYILER.length = 0;
   list.forEach(function(b){ BAYILER.push(b); });
-  // MUDURLER'i yeniden türet (USERS + BAYILER)
-  MUDURLER.length = 0;
-  getMudurListesi().forEach(function(m){ MUDURLER.push(m); });
+  getMudurListesi(); // MUDURLER'i güncelle
 }
 
 // ── Supabase'e kaydet ────────────────────────────────────────
@@ -5370,49 +5370,92 @@ function adminRenderMudurOzet(c) {
   var bayiler = ADMIN_BAYILER_RT || BAYILER;
   var users   = ADMIN_USERS_RT   || USERS;
 
+  // Rol etiketleri ve renkleri
+  var ROL_LABEL = {mudur:'Bölge Müdürü', satis_muduru:'Satış Müdürü', direktor:'Direktör', admin:'Admin'};
+  var ROL_BADGE = {
+    mudur:        'background:rgba(29,78,216,0.1);color:#1D4ED8',
+    satis_muduru: 'background:rgba(21,128,61,0.1);color:#15803D',
+    direktor:     'background:rgba(124,58,237,0.1);color:#7c3aed',
+    admin:        'background:rgba(220,38,38,0.1);color:#DC2626'
+  };
+
+  function rolBadgeHtml(u) {
+    if (!u) return '<span style="color:var(--muted);font-size:11px">—</span>';
+    var r = u.role || 'mudur';
+    var lbl = ROL_LABEL[r] || r;
+    var st  = ROL_BADGE[r] || ROL_BADGE['mudur'];
+    return '<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;'+st+'">'+lbl+'</span>';
+  }
+
+  // ── Bölge Müdürleri tablosu (bayisi olanlar) ──────────────
   var mudurlerSet = new Set(
-    bayiler.map(function(b){ return b.mudur; }).filter(Boolean).concat(
-    users.filter(function(u){ return u.role==='mudur' && (u.mudur||'').trim(); }).map(function(u){ return u.mudur.trim(); })).concat(
-    users.filter(function(u){ return u.role==='mudur' && !(u.mudur||'').trim() && (u.ad||'').trim(); }).map(function(u){ return u.ad.trim(); }))
+    bayiler.map(function(b){ return b.mudur; }).filter(Boolean)
+    .concat(users.filter(function(u){ return u.role==='mudur' && (u.mudur||'').trim(); })
+                 .map(function(u){ return u.mudur.trim(); }))
+    .concat(users.filter(function(u){ return u.role==='mudur' && !(u.mudur||'').trim() && (u.ad||'').trim(); })
+                 .map(function(u){ return u.ad.trim(); }))
   );
   var mudurler = Array.from(mudurlerSet).sort();
 
-  var rows = mudurler.map(function(m) {
-    var u = users.find(function(x){ return x.mudur===m || (!(x.mudur||'').trim() && x.ad===m); });
+  var bmRows = mudurler.map(function(m) {
+    var u = users.find(function(x){
+      return (x.role==='mudur') && (x.mudur===m || (!(x.mudur||'').trim() && x.ad===m));
+    });
     var bs = bayiler.filter(function(b){ return b.mudur===m && b.ad!=='(Bayi ekleyin)'; });
-    var rolBadge = u
-      ? '<span class="admin-badge '+(u.role==='admin'?'admin-badge-admin':'admin-badge-mudur')+'">'+(u.role==='admin'?'Admin':'Müdür')+'</span>'
-      : '<span style="color:var(--muted);font-size:11px">Kullanıcı yok</span>';
     var bayiStr = bs.length
       ? bs.map(function(b){ return b.ad+' ('+b.sehir+')'; }).join(', ')
       : '<span style="color:var(--yellow)">Henüz bayi atanmadı</span>';
     return '<tr>'
       +'<td style="font-weight:700">'+m+'</td>'
-      +'<td>'+rolBadge+'</td>'
-      +'<td style="font-family:IBM Plex Mono,monospace;font-size:12px;color:var(--muted)">'+(u?u.username:'—')+'</td>'
-      +'<td style="font-weight:700;color:var(--red)">'+bs.length+'</td>'
-      +'<td style="font-size:12px;color:var(--muted);max-width:300px">'+bayiStr+'</td>'
+      +'<td>'+rolBadgeHtml(u)+'</td>'
+      +'<td style="font-family:IBM Plex Mono,monospace;font-size:12px;color:var(--muted)">'+(u?(u.username||'<span style="color:var(--accent)">⚠ Kullanıcı adı yok</span>'):'<span style="color:var(--accent)">⚠ Kullanıcı tanımlı değil</span>')+'</td>'
+      +'<td style="font-weight:700;color:var(--red);text-align:center">'+bs.length+'</td>'
+      +'<td style="font-size:12px;color:var(--muted);max-width:280px">'+bayiStr+'</td>'
       +'</tr>';
   }).join('');
 
-  var noUserList = mudurler.filter(function(m){ return !users.find(function(u){ return u.mudur===m||u.ad===m; }); });
+  // ── Diğer roller tablosu (SM, Direktör, Admin) ────────────
+  var otherUsers = users.filter(function(u){ return u.role !== 'mudur'; }).sort(function(a,b){
+    var order = {direktor:0, satis_muduru:1, admin:2};
+    return (order[a.role]||9) - (order[b.role]||9);
+  });
+
+  var otherRows = otherUsers.map(function(u) {
+    return '<tr>'
+      +'<td style="font-weight:700">'+(u.ad||'<span style="color:var(--accent)">Ad girilmemiş</span>')+'</td>'
+      +'<td>'+rolBadgeHtml(u)+'</td>'
+      +'<td style="font-family:IBM Plex Mono,monospace;font-size:12px;color:var(--muted)">'+(u.username||'<span style="color:var(--accent)">⚠ Kullanıcı adı yok</span>')+'</td>'
+      +'</tr>';
+  }).join('');
+
+  // ── Kullanıcısı olmayan müdürler uyarısı ──────────────────
+  var noUserList = mudurler.filter(function(m){
+    return !users.find(function(u){ return u.role==='mudur' && (u.mudur===m || u.ad===m); });
+  });
   var noUserHtml = noUserList.length === 0
-    ? '<div style="color:var(--green);font-size:13px">✅ Tüm müdürlerin kullanıcısı tanımlı.</div>'
+    ? '<div style="color:var(--green);font-size:13px">✅ Tüm bölge müdürlerinin kullanıcısı tanımlı.</div>'
     : noUserList.map(function(m){
         return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">'
-          +'<span style="color:var(--accent)">⚠️</span>'
-          +'<span style="font-weight:600">'+m+'</span>'
-          +'<span style="font-size:12px;color:var(--muted)">için kullanıcı hesabı tanımlı değil — Kullanıcılar sekmesinden ekleyin.</span>'
+          +'<span style="color:var(--accent)">⚠️</span><span style="font-weight:600">'+m+'</span>'
+          +'<span style="font-size:12px;color:var(--muted)">için kullanıcı hesabı tanımlı değil.</span>'
           +'</div>';
       }).join('');
 
   c.innerHTML =
     '<div class="admin-card">'
-    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px">Müdür — Bayi Dağılımı</div>'
-    +'<table class="admin-tbl"><thead><tr><th>Müdür</th><th>Rol</th><th>Kullanıcı Adı</th><th>Bayi Sayısı</th><th>Bayiler</th></tr></thead>'
-    +'<tbody>'+rows+'</tbody></table></div>'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px">Bölge Müdürleri — Bayi Dağılımı</div>'
+    +'<div style="overflow-x:auto"><table class="admin-tbl"><thead><tr>'
+    +'<th>Ad Soyad</th><th>Rol</th><th>Kullanıcı Adı</th><th style="text-align:center">Bayi</th><th>Bayiler</th>'
+    +'</tr></thead><tbody>'+(bmRows||'<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:20px">Henüz bölge müdürü tanımlı değil</td></tr>')+'</tbody></table></div>'
+    +'</div>'
     +'<div class="admin-card">'
-    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px">Kullanıcısı Olmayan Müdürler</div>'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px">Diğer Kullanıcılar</div>'
+    +'<div style="overflow-x:auto"><table class="admin-tbl"><thead><tr>'
+    +'<th>Ad Soyad</th><th>Rol</th><th>Kullanıcı Adı</th>'
+    +'</tr></thead><tbody>'+(otherRows||'<tr><td colspan="3" style="color:var(--muted);text-align:center;padding:20px">Kullanıcı yok</td></tr>')+'</tbody></table></div>'
+    +'</div>'
+    +'<div class="admin-card">'
+    +'<div style="font-size:14px;font-weight:700;margin-bottom:14px">⚠️ Uyarılar</div>'
     +noUserHtml
     +'</div>';
 }
