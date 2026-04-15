@@ -1179,7 +1179,7 @@ function renderYeniRapor(prefill={}) {
         ${TEST_MODELLER.map((m,i)=>`
         <tr>
           <td>${m}</td>
-          <td><input type="number" id="ta-h-${i}" value="${prefill.testArac?.[i]?.hedef !== undefined && prefill.testArac?.[i]?.hedef !== '' ? prefill.testArac[i].hedef : ((PP_TEST_HEDEF[prefill.bayi||selectedBayi||'']||[])[i]||'')}" style="width:80px;padding:4px 8px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px" oninput="calcTestSapma(${i})"></td>
+          <td><input type="number" id="ta-h-${i}" value="${prefill.testArac?.[i]?.hedef !== undefined && prefill.testArac?.[i]?.hedef !== '' ? prefill.testArac[i].hedef : ((PP_TEST_HEDEF[prefill.bayi||'']||[])[i]||'')}" style="width:80px;padding:4px 8px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px" oninput="calcTestSapma(${i})"></td>
           <td><input type="number" id="ta-m-${i}" value="${prefill.testArac?.[i]?.mevcut||''}" style="width:80px;padding:4px 8px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px" oninput="calcTestSapma(${i})"></td>
           <td><span id="ta-s-${i}" style="font-family:monospace;font-size:12px;font-weight:600;color:var(--muted)">${prefill.testArac?.[i]?.sapma !== undefined && prefill.testArac?.[i]?.sapma !== '' ? (parseFloat(prefill.testArac[i].sapma)>0?'<span style=color:var(--green)>+'+parseFloat(prefill.testArac[i].sapma).toFixed(1)+'%</span>':'<span style=color:var(--accent)>'+parseFloat(prefill.testArac[i].sapma).toFixed(1)+'%</span>') : '—'}</span></td>
           <td><input type="text" id="ta-n-${i}" value="${prefill.testArac?.[i]?.not||''}" style="width:120px;padding:4px 8px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px"></td>
@@ -2524,10 +2524,10 @@ async function doLogin() {
   document.getElementById('user-display').textContent = user.ad + (user.role==='admin' ? ' (Admin)' : '');
 
   // Supabase'den config yükle (kullanıcı, bayi listesi)
-  await adminLoadConfig();
+  try { await adminLoadConfig(); } catch(e) { console.warn('adminLoadConfig:', e); }
 
   // Supabase'den raporları yükle
-  await loadRaporlarFromDB();
+  try { await loadRaporlarFromDB(); } catch(e) { console.warn('loadRaporlar:', e); }
 
   // Admin butonu göster/gizle
   document.querySelectorAll('.admin-only').forEach(el => {
