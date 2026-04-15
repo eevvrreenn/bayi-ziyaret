@@ -1471,33 +1471,31 @@ function onBayiChange() {
   const b = BAYILER.find(x=>x.ad===bayi);
   if (b) document.getElementById('f-sehir').value = b.sehir;
 
-  // PP_TEST_HEDEF'ten hedefleri doldur — sadece boşsa yaz
+  // PP_TEST_HEDEF — her zaman üzerine yaz
   const taHedefler = PP_TEST_HEDEF[bayi] || [];
   TEST_MODELLER.forEach(function(_, i) {
     const inp = document.getElementById('ta-h-' + i);
-    if (inp && (inp.value === '' || inp.value === '0' || inp.value === undefined)) {
+    if (inp) {
       inp.value = taHedefler[i] || '';
       calcTestSapma(i);
     }
   });
 
-  // PP_PERSONEL_HEDEF'ten personel hedeflerini doldur — sadece boşsa yaz
+  // PP_PERSONEL_HEDEF — her zaman üzerine yaz
   const prHedefler = PP_PERSONEL_HEDEF[bayi] || [];
   [0,1,2,3,4,5,6].forEach(function(i) {
     const inp = document.getElementById('pr-h-' + i);
-    if (inp && (inp.value === '' || inp.value === '0' || inp.value === undefined)) {
+    if (inp) {
       inp.value = prHedefler[i] || '';
       calcPersonelSapma(i);
     }
   });
 
-  // PP_DBS_HEDEF'ten DBS hedefini doldur — PERF_ROWS index 7
-  const dbsHedef = PP_DBS_HEDEF[bayi];
-  if (dbsHedef !== undefined && dbsHedef !== 0) {
-    const dbsInp = document.getElementById('perf-h-7');
-    if (dbsInp && (dbsInp.value === '' || dbsInp.value === '0')) {
-      dbsInp.value = dbsHedef;
-    }
+  // PP_DBS_HEDEF — her zaman üzerine yaz
+  const dbsInp = document.getElementById('perf-h-7');
+  if (dbsInp) {
+    const dbsHedef = PP_DBS_HEDEF[bayi];
+    dbsInp.value = (dbsHedef !== undefined && dbsHedef !== 0) ? dbsHedef : '';
   }
 }
 
