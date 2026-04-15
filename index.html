@@ -1202,7 +1202,7 @@ function renderYeniRapor(prefill={}) {
         <tr>
           <td>${p}</td>
           <td><input type="number" id="pr-m-${i}" value="${prefill.personel?.[i]?.mevcut||''}" style="width:70px;padding:4px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px" oninput="calcPersonelSapma(${i})"></td>
-          <td><input type="number" id="pr-h-${i}" value="${prefill.personel?.[i]?.hedef||''}" style="width:70px;padding:4px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px" oninput="calcPersonelSapma(${i})"></td>
+          <td><input type="number" id="pr-h-${i}" value="${prefill.personel?.[i]?.hedef !== undefined && prefill.personel?.[i]?.hedef !== '' ? prefill.personel[i].hedef : ((PP_PERSONEL_HEDEF[prefill.bayi||'']||[])[i]||'')}" style="width:70px;padding:4px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px" oninput="calcPersonelSapma(${i})"></td>
           <td><span id="pr-s-${i}" style="font-family:monospace;font-size:12px;font-weight:600">${(()=>{const s=prefill.personel?.[i]?.sapma;if(s===undefined||s==='')return '<span style=color:var(--muted)>—</span>';const sv=parseFloat(s);const col=sv>0?'var(--green)':sv<0?'var(--accent)':'var(--muted)';return `<span style=color:${col}>${sv>0?'+':''}${sv}</span>`;})()}</span></td>
           <td><input type="text" id="pr-n-${i}" value="${prefill.personel?.[i]?.not||''}" style="width:160px;padding:4px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px"></td>
         </tr>`).join('')}
@@ -1476,6 +1476,15 @@ function onBayiChange() {
     if (inp && !inp.value) {
       inp.value = hedefler[i] || '';
       calcTestSapma(i);
+    }
+  });
+  // PP_PERSONEL_HEDEF'ten personel hedeflerini doldur
+  const prHedefler = PP_PERSONEL_HEDEF[bayi] || [];
+  [0,1,2,3,4,5,6].forEach(function(i) {
+    const inp = document.getElementById('pr-h-' + i);
+    if (inp && !inp.value) {
+      inp.value = prHedefler[i] || '';
+      calcPersonelSapma(i);
     }
   });
 }
@@ -2629,10 +2638,12 @@ async function ppSavePerfToDb(perfData) {
 let PP_VISIT = {};
 // PP_TEST_HEDEF: {dealer: [h0,h1,...]} — TEST_MODELLER sırasına göre
 let PP_TEST_HEDEF = {};
+// PP_PERSONEL_HEDEF: {dealer: [h0,h1,...]} — personel tipleri sırasına göre
+let PP_PERSONEL_HEDEF = {};
 
 async function ppLoadPerfFromDb() {
   try {
-    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef)&select=key,value', {
+    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef,pp_personel_hedef)&select=key,value', {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY }
     });
     if (!res.ok) return false;
@@ -2648,6 +2659,7 @@ async function ppLoadPerfFromDb() {
         if (row.key === 'pp_data' && data.dealers) PP_DATA.dealers = data.dealers;
         if (row.key === 'pp_visit') Object.assign(PP_VISIT, data);
         if (row.key === 'pp_test_hedef') Object.assign(PP_TEST_HEDEF, data);
+        if (row.key === 'pp_personel_hedef') Object.assign(PP_PERSONEL_HEDEF, data);
       } catch(e) {}
     });
     return true;
@@ -2662,7 +2674,8 @@ async function ppSaveAllToDb() {
     { key: 'pp_regional', data: PP_REGIONAL },
     { key: 'pp_data',     data: PP_DATA },
     { key: 'pp_visit',    data: PP_VISIT },
-    { key: 'pp_test_hedef', data: PP_TEST_HEDEF },
+    { key: 'pp_test_hedef',    data: PP_TEST_HEDEF },
+    { key: 'pp_personel_hedef', data: PP_PERSONEL_HEDEF },
   ];
   for (var i=0; i<saves.length; i++) {
     try {
@@ -3833,6 +3846,30 @@ function ppDownloadExcel() {
   wsTA['!cols'] = taCols;
   XLSX.utils.book_append_sheet(wb, wsTA, 'Test Araclari Hedef');
 
+  // ── Personel Hedef sheet ────────────────────────────────────
+  var prTipler = ['Satış Danışmanı','Satış Şefi','Satış Müdürü','Resepsiyon Görevlisi','Müşteri İlişkiler Personeli','Teslimat Görevlisi','Diğer'];
+  var prRows = [['Dealer Name'].concat(prTipler)];
+  PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).forEach(function(d) {
+    var dh = PP_PERSONEL_HEDEF[d.name] || [];
+    prRows.push([d.name].concat(prTipler.map(function(_,i){ return dh[i]||0; })));
+  });
+  var wsPR = XLSX.utils.aoa_to_sheet(prRows);
+  for (var ci=0; ci<prTipler.length+1; ci++) {
+    var a0 = XLSX.utils.encode_cell({r:0, c:ci});
+    if (!wsPR[a0]) wsPR[a0] = {v:'', t:'s'};
+    wsPR[a0].s = hdrStyle('4A1A6B', true);
+  }
+  for (var ri=1; ri<prRows.length; ri++) {
+    var bg = (ri%2===0)?'F7F7F7':'FFFFFF';
+    for (var ci=0; ci<prTipler.length+1; ci++) {
+      var addr = XLSX.utils.encode_cell({r:ri, c:ci});
+      if (!wsPR[addr]) wsPR[addr] = {v:'', t:'s'};
+      wsPR[addr].s = dataStyle(bg);
+    }
+  }
+  wsPR['!cols'] = [{wch:22}].concat(prTipler.map(function(){ return {wch:16}; }));
+  XLSX.utils.book_append_sheet(wb, wsPR, 'Personel Hedef');
+
   // ── Visit Plan sheet ─────────────────────────────────────────
   var years = Object.keys(PP_VISIT).sort();
   years.forEach(function(yr) {
@@ -4152,6 +4189,25 @@ function ppHandleExcelImport(event) {
               hedefler.push((v && !isNaN(parseInt(v))) ? parseInt(v) : 0);
             }
             PP_TEST_HEDEF[dealer] = hedefler;
+          }
+        }
+      }
+
+      // ── Personel Hedef sekmesini parse et ────────────────────
+      if (wb.SheetNames.includes('Personel Hedef')) {
+        var prSheet = wb.Sheets['Personel Hedef'];
+        var prData  = XLSX.utils.sheet_to_json(prSheet, {header:1, defval:null});
+        if (prData && prData.length > 1) {
+          for (var ri=1; ri<prData.length; ri++) {
+            var row = prData[ri];
+            if (!row || !row[0]) continue;
+            var dealer = String(row[0]).trim();
+            var hedefler = [];
+            for (var ci=1; ci<=7; ci++) {
+              var v = row[ci];
+              hedefler.push((v && !isNaN(parseInt(v))) ? parseInt(v) : 0);
+            }
+            PP_PERSONEL_HEDEF[dealer] = hedefler;
           }
         }
       }
