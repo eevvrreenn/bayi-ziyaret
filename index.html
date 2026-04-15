@@ -4176,11 +4176,13 @@ function ppHandleExcelImport(event) {
       });
 
       // ── Test Araçları Hedef sekmesini parse et ──────────────
-      if (wb.SheetNames.includes('Test Araclari Hedef')) {
-        var taSheet = wb.Sheets['Test Araclari Hedef'];
+      var taSheetName = wb.SheetNames.find(function(s) {
+        return s.toLowerCase().replace(/\s+/g,'').includes('testarac');
+      });
+      if (taSheetName) {
+        var taSheet = wb.Sheets[taSheetName];
         var taData  = XLSX.utils.sheet_to_json(taSheet, {header:1, defval:null});
         if (taData && taData.length > 1) {
-          // Satır 0: başlıklar [Dealer Name, Model0, Model1, ...]
           var taHeader = taData[0] || [];
           for (var ri=1; ri<taData.length; ri++) {
             var row = taData[ri];
@@ -4193,12 +4195,18 @@ function ppHandleExcelImport(event) {
             }
             PP_TEST_HEDEF[dealer] = hedefler;
           }
+          console.log('PP_TEST_HEDEF yüklendi:', Object.keys(PP_TEST_HEDEF).length, 'bayi');
         }
+      } else {
+        console.warn('Test Araclari Hedef sekmesi bulunamadı. Mevcut sekmeler:', wb.SheetNames);
       }
 
       // ── Personel Hedef sekmesini parse et ────────────────────
-      if (wb.SheetNames.includes('Personel Hedef')) {
-        var prSheet = wb.Sheets['Personel Hedef'];
+      var prSheetName = wb.SheetNames.find(function(s) {
+        return s.toLowerCase().replace(/\s+/g,'').includes('personel');
+      });
+      if (prSheetName) {
+        var prSheet = wb.Sheets[prSheetName];
         var prData  = XLSX.utils.sheet_to_json(prSheet, {header:1, defval:null});
         if (prData && prData.length > 1) {
           for (var ri=1; ri<prData.length; ri++) {
@@ -4212,7 +4220,10 @@ function ppHandleExcelImport(event) {
             }
             PP_PERSONEL_HEDEF[dealer] = hedefler;
           }
+          console.log('PP_PERSONEL_HEDEF yüklendi:', Object.keys(PP_PERSONEL_HEDEF).length, 'bayi');
         }
+      } else {
+        console.warn('Personel Hedef sekmesi bulunamadı. Mevcut sekmeler:', wb.SheetNames);
       }
 
       ppPendingImport = merged;
@@ -4234,13 +4245,12 @@ async function ppApplyImport() {
   for (const [k,v] of Object.entries(ppPendingImport)) { PP_PERF[k] = v; }
   ppPendingImport = null;
   ppCurrentDealer = null;
-  // PP_DATA ve PP_REGIONAL import sırasında zaten güncellendi (Object.assign)
-  // Yıl listesini yenile
+  console.log('ppApplyImport — PP_TEST_HEDEF bayileri:', Object.keys(PP_TEST_HEDEF));
+  console.log('ppApplyImport — PP_PERSONEL_HEDEF bayileri:', Object.keys(PP_PERSONEL_HEDEF));
   const years = ppGetAvailableYears();
   if (!years.includes(ppCurrentYear) && years.length > 0) ppCurrentYear = years[0];
   ppCloseImport();
   renderPerfPanel();
-  // Supabase'e kaydet
   ppSetProgress(80, 'Veriler buluta kaydediliyor…');
   await ppSaveAllToDb();
   toast('✅ Tüm veriler güncellendi ve kaydedildi!', 'blue');
