@@ -1490,6 +1490,15 @@ function onBayiChange() {
       calcPersonelSapma(i);
     }
   });
+
+  // PP_DBS_HEDEF'ten DBS hedefini doldur — PERF_ROWS index 7
+  const dbsHedef = PP_DBS_HEDEF[bayi];
+  if (dbsHedef !== undefined && dbsHedef !== 0) {
+    const dbsInp = document.getElementById('perf-h-7');
+    if (dbsInp && (dbsInp.value === '' || dbsInp.value === '0')) {
+      dbsInp.value = dbsHedef;
+    }
+  }
 }
 
 // ============================================================
@@ -2643,10 +2652,12 @@ let PP_VISIT = {};
 let PP_TEST_HEDEF = {};
 // PP_PERSONEL_HEDEF: {dealer: [h0,h1,...]} — personel tipleri sırasına göre
 let PP_PERSONEL_HEDEF = {};
+// PP_DBS_HEDEF: {dealer: hedef} — DBS Limit hedefi
+let PP_DBS_HEDEF = {};
 
 async function ppLoadPerfFromDb() {
   try {
-    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef,pp_personel_hedef)&select=key,value', {
+    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef,pp_personel_hedef,pp_dbs_hedef)&select=key,value', {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY }
     });
     if (!res.ok) return false;
@@ -2663,6 +2674,7 @@ async function ppLoadPerfFromDb() {
         if (row.key === 'pp_visit') Object.assign(PP_VISIT, data);
         if (row.key === 'pp_test_hedef') Object.assign(PP_TEST_HEDEF, data);
         if (row.key === 'pp_personel_hedef') Object.assign(PP_PERSONEL_HEDEF, data);
+        if (row.key === 'pp_dbs_hedef') Object.assign(PP_DBS_HEDEF, data);
       } catch(e) {}
     });
     return true;
@@ -2679,6 +2691,7 @@ async function ppSaveAllToDb() {
     { key: 'pp_visit',    data: PP_VISIT },
     { key: 'pp_test_hedef',    data: PP_TEST_HEDEF },
     { key: 'pp_personel_hedef', data: PP_PERSONEL_HEDEF },
+    { key: 'pp_dbs_hedef',       data: PP_DBS_HEDEF },
   ];
   for (var i=0; i<saves.length; i++) {
     try {
@@ -3873,6 +3886,28 @@ function ppDownloadExcel() {
   wsPR['!cols'] = [{wch:22}].concat(prTipler.map(function(){ return {wch:16}; }));
   XLSX.utils.book_append_sheet(wb, wsPR, 'Personel Hedef');
 
+  // ── DBS Hedef sheet ─────────────────────────────────────────
+  var dbsRows = [['Dealer Name', 'DBS Hedef']];
+  PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).forEach(function(d) {
+    dbsRows.push([d.name, PP_DBS_HEDEF[d.name] || 0]);
+  });
+  var wsDBS = XLSX.utils.aoa_to_sheet(dbsRows);
+  for (var ci=0; ci<2; ci++) {
+    var a0 = XLSX.utils.encode_cell({r:0, c:ci});
+    if (!wsDBS[a0]) wsDBS[a0] = {v:'', t:'s'};
+    wsDBS[a0].s = hdrStyle('6B1A1A', true);
+  }
+  for (var ri=1; ri<dbsRows.length; ri++) {
+    var bg = (ri%2===0)?'F7F7F7':'FFFFFF';
+    for (var ci=0; ci<2; ci++) {
+      var addr = XLSX.utils.encode_cell({r:ri, c:ci});
+      if (!wsDBS[addr]) wsDBS[addr] = {v:'', t:'s'};
+      wsDBS[addr].s = dataStyle(bg);
+    }
+  }
+  wsDBS['!cols'] = [{wch:22}, {wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsDBS, 'DBS Hedef');
+
   // ── Visit Plan sheet ─────────────────────────────────────────
   var years = Object.keys(PP_VISIT).sort();
   years.forEach(function(yr) {
@@ -4224,6 +4259,25 @@ function ppHandleExcelImport(event) {
         }
       } else {
         console.warn('Personel Hedef sekmesi bulunamadı. Mevcut sekmeler:', wb.SheetNames);
+      }
+
+      // ── DBS Hedef sekmesini parse et ─────────────────────────
+      var dbsSheetName = wb.SheetNames.find(function(s) {
+        return s.toLowerCase().replace(/\s+/g,'').includes('dbs');
+      });
+      if (dbsSheetName) {
+        var dbsSheet = wb.Sheets[dbsSheetName];
+        var dbsData  = XLSX.utils.sheet_to_json(dbsSheet, {header:1, defval:null});
+        if (dbsData && dbsData.length > 1) {
+          for (var ri=1; ri<dbsData.length; ri++) {
+            var row = dbsData[ri];
+            if (!row || !row[0]) continue;
+            var dealer = String(row[0]).trim();
+            var val = row[1];
+            PP_DBS_HEDEF[dealer] = (val && !isNaN(parseInt(val))) ? parseInt(val) : 0;
+          }
+          console.log('PP_DBS_HEDEF yüklendi:', Object.keys(PP_DBS_HEDEF).length, 'bayi');
+        }
       }
 
       ppPendingImport = merged;
