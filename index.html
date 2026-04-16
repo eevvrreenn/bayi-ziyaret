@@ -5959,7 +5959,7 @@ function fcScoreColor(pct) {
 }
 
 // ── ANA RENDER FONKSİYONU ─────────────────────────────────────────────────────
-var FC_VIEW = 'dealer'; // 'dealer' | 'segment' | 'model' | 'eval' | 'upload'
+var FC_VIEW = 'genel'; // 'genel' | 'dealer' | 'bolge' | 'eval' | 'upload'
 var FC_SELECTED_DEALERS = []; // admin/SM için seçilen bayiler
 var FC_DEALER_SEL = null; // bayi bazlı sekmede seçili bayi
 var FC_EVAL_WK = null;   // değerlendirme sekmesinde seçili hafta
@@ -6055,7 +6055,7 @@ function renderFcPanel() {
       '<div style="font-size:12px;color:var(--muted)">' + myDealers.length + ' bayi</div>' +
       '</div>';
     // Bayi filtresi sadece admin'e ve sadece ilgili sekmelerde göster
-    if (FC_VIEW !== 'dealer' && FC_VIEW !== 'eval') {
+    if (FC_VIEW !== 'dealer' && FC_VIEW !== 'eval' && FC_VIEW !== 'bolge') {
       content += dealerFilter;
     }
   } else {
@@ -7190,82 +7190,6 @@ function fcDownloadTemplate() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wgRows), 'FC-Weights');
   XLSX.writeFile(wb, 'FC_Template_' + period + '.xlsx');
 }
-function fcDrawCharts(period, dealers) {
-  if (typeof Chart === 'undefined') return;
-  var activeWk = fcActiveWeek(period, dealers) || 'w1';
-
-  // 1. Segment Eva
-  var segLabels = [], segEvas = [], segColors = [];
-  FC_SEGMENTS.forEach(function(seg) {
-    var sTot = fcSegmentTotal(period, dealers, seg);
-    var pace = fcPace(sTot[activeWk+'act'], activeWk);
-    var eva = fcEva(pace, sTot.target) || 0;
-    segLabels.push(seg.label);
-    segEvas.push(eva);
-    segColors.push(seg.color);
-  });
-  var ca = document.getElementById('fcChartSegment');
-  if (ca && !ca._ci) {
-    ca._ci = new Chart(ca, {type:'bar', data:{labels:segLabels, datasets:[
-      {label:'Eva %', data:segEvas, backgroundColor:segColors.map(function(c){return c+'88';}), borderColor:segColors, borderWidth:2, borderRadius:4}
-    ]}, options:{responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}, annotation:{annotations:[{type:'line',y:100,borderColor:'rgba(0,200,0,0.5)',borderWidth:2,borderDash:[4,4]}]}},
-      scales:{y:{ticks:{callback:function(v){return v+'%';},color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'},suggestedMax:120},
-              x:{ticks:{color:'#7A8FA3'}, grid:{display:false}}}}});
-  }
-
-  // 2. Top 10 Bayi
-  var dealerRows = dealers.map(function(dn) {
-    var tot = fcDealerTotal(period, dn);
-    var pace = fcPace(tot[activeWk+'act'], activeWk);
-    return { dn:dn, eva: fcEva(pace, tot.target)||0, act:tot[activeWk+'act']||0 };
-  }).filter(function(r){return r.act>0;}).sort(function(a,b){return b.eva-a.eva;}).slice(0,10);
-
-  var cb = document.getElementById('fcChartDealer');
-  if (cb && !cb._ci) {
-    cb._ci = new Chart(cb, {type:'bar', data:{
-      labels: dealerRows.map(function(r){return r.dn;}),
-      datasets:[{label:'Eva %', data:dealerRows.map(function(r){return r.eva;}),
-        backgroundColor:dealerRows.map(function(r){return r.eva>=100?'rgba(21,128,61,0.7)':r.eva>=80?'rgba(202,138,4,0.7)':'rgba(220,38,38,0.7)';}),
-        borderRadius:4}]
-    }, options:{indexAxis:'y', responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
-      scales:{x:{ticks:{callback:function(v){return v+'%';},color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'},suggestedMax:120},
-              y:{ticks:{color:'#7A8FA3',font:{size:10}}, grid:{display:false}}}}});
-  }
-
-  // 3. Haftalık trend
-  var trendLabels = [], trendAct = [], trendPace = [], trendTarget = [];
-  var hasTrend = false;
-  FC_WEEKS.forEach(function(wk) {
-    var tot = {target:0};
-    tot[wk+'act'] = 0;
-    dealers.forEach(function(dn) {
-      var t = fcDealerTotal(period, dn);
-      tot.target += t.target;
-      tot[wk+'act'] += t[wk+'act']||0;
-    });
-    var pace = fcPace(tot[wk+'act'], wk);
-    trendLabels.push(FC_WEEK_LABELS[wk]);
-    trendAct.push(tot[wk+'act']||null);
-    trendPace.push(tot[wk+'act']>0?pace:null);
-    trendTarget.push(tot.target||null);
-    if (tot[wk+'act']>0) hasTrend = true;
-  });
-
-  var cc = document.getElementById('fcChartTrend');
-  if (cc && !cc._ci && hasTrend) {
-    cc._ci = new Chart(cc, {type:'line', data:{labels:trendLabels, datasets:[
-      {label:'Target', data:trendTarget, borderColor:'rgba(29,78,216,0.7)', backgroundColor:'transparent', borderDash:[6,3], pointRadius:4, tension:0},
-      {label:'Act', data:trendAct, borderColor:'rgba(21,128,61,0.9)', backgroundColor:'rgba(21,128,61,0.1)', pointRadius:6, tension:0.3, fill:true},
-      {label:'Pace', data:trendPace, borderColor:'rgba(202,138,4,0.9)', backgroundColor:'transparent', pointRadius:6, borderDash:[4,2], tension:0.3}
-    ]}, options:{responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{labels:{color:'#7A8FA3',font:{size:10}}}},
-      scales:{y:{ticks:{color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'}},
-              x:{ticks:{color:'#7A8FA3'}, grid:{display:false}}}}});
-  }
-}
-
 // ============================================================
 // INIT
 // ============================================================
