@@ -3320,258 +3320,184 @@ function ppRenderInfoTab(d) {
 
 
 function ppExportOverviewPDF() {
-  if (typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
+  if (!window.jspdf || !window.jspdf.jsPDF) {
     toast('⚠️ jsPDF yüklenmedi, bekleyip tekrar deneyin.', 'red'); return;
   }
-  const { jsPDF } = window.jspdf || window;
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const { jsPDF } = window.jspdf;
 
+  // Türkçe → Latin
+  function tr(str) {
+    if (!str) return '—';
+    return String(str)
+      .replace(/ğ/g,'g').replace(/Ğ/g,'G')
+      .replace(/ü/g,'u').replace(/Ü/g,'U')
+      .replace(/ş/g,'s').replace(/Ş/g,'S')
+      .replace(/ı/g,'i').replace(/İ/g,'I')
+      .replace(/ö/g,'o').replace(/Ö/g,'O')
+      .replace(/ç/g,'c').replace(/Ç/g,'C');
+  }
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const dealer = ppCurrentDealer;
   const d = PP_DATA.dealers.find(x => x.name === dealer) || {};
   const perf = PP_PERF[dealer] || {};
   const year = ppCurrentYear;
-  const r = PP_REGIONAL[dealer] || {};
+  const reg = PP_REGIONAL[dealer] || {};
 
-  const PW = 210, PH = 297;
-  const ML = 14, MR = 14;
+  const PW = 210, PH = 297, ML = 12, MR = 12;
   let y = 0;
 
-  // ── Renkler ──────────────────────────────────────────────────
   const C = {
-    red:   [220, 38,  38],
-    blue:  [29,  78,  216],
-    green: [21,  128, 61],
-    dark:  [30,  58,  95],
-    mid:   [51,  77,  115],
-    light: [241, 245, 249],
-    muted: [120, 140, 160],
-    white: [255, 255, 255],
-    text:  [30,  30,  30],
-    amber: [180, 120, 0],
+    red:  [220,38,38], blue: [29,78,216], green: [21,128,61],
+    dark: [30,58,95],  mid:  [51,77,115], light: [241,245,249],
+    muted:[120,140,160], white:[255,255,255], text:[30,30,30], amber:[180,120,0]
   };
 
   function pctColor(v) {
     const n = parseFloat(v);
-    if (isNaN(n) || n === 0) return C.muted;
-    if (n >= 100) return C.green;
-    if (n >= 80)  return C.amber;
-    return C.red;
+    if (isNaN(n)||n===0) return C.muted;
+    return n>=100 ? C.green : n>=80 ? C.amber : C.red;
   }
 
-  // ── Yardımcılar ──────────────────────────────────────────────
-  function sectionTitle(title, yy) {
+  function secTitle(title, yy) {
     doc.setFillColor(...C.dark);
-    doc.rect(ML, yy, PW - ML - MR, 7, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...C.white);
-    doc.text(title.toUpperCase(), ML + 3, yy + 5);
-    return yy + 10;
+    doc.rect(ML, yy, PW-ML-MR, 6, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(...C.white);
+    doc.text(title.toUpperCase(), ML+3, yy+4.2);
+    return yy+8;
   }
 
-  function checkPage(needed) {
-    if (y + needed > PH - 12) {
-      doc.addPage();
-      y = 14;
-    }
-  }
-
-  function drawFooter() {
-    const pc = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pc; i++) {
-      doc.setPage(i);
-      doc.setFillColor(...C.dark);
-      doc.rect(0, PH - 9, PW, 9, 'F');
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(...C.white);
-      doc.text('Honda Motosiklet — Bayi Ziyaret Sistemi', ML, PH - 3.5);
-      doc.text('Sayfa ' + i + ' / ' + pc, PW - MR, PH - 3.5, { align: 'right' });
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // SAYFA 1 — KAPAK
-  // ═══════════════════════════════════════════════════════════
-
-  // Üst banner
+  // ── HEADER BANDI ──────────────────────────────────────────
   doc.setFillColor(...C.dark);
-  doc.rect(0, 0, PW, 50, 'F');
+  doc.rect(0, 0, PW, 18, 'F');
   doc.setFillColor(...C.red);
-  doc.rect(0, 0, 10, 50, 'F');
-
-  // Başlık
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20);
-  doc.setTextColor(...C.white);
-  doc.text(dealer, 16, 20);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(180, 200, 220);
-  doc.text('DEALER OVERVIEW REPORT — ' + year + ' Fiscal Year', 16, 30);
-
+  doc.rect(0, 0, 8, 18, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(...C.white);
+  doc.text(tr(dealer), 11, 10);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(180,200,220);
+  doc.text('One Page Report  |  ' + year + ' Fiscal Year', 11, 15);
   const now = new Date();
-  doc.setFontSize(8);
-  doc.setTextColor(150, 175, 200);
-  doc.text('Generated: ' + now.toLocaleDateString('tr-TR') + '  ' + now.toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit'}), 16, 38);
-  if (d.city) doc.text('📍 ' + d.city + (d.dsm ? '   ● DSM: ' + d.dsm : ''), 16, 45);
+  doc.setFontSize(7); doc.setTextColor(150,175,200);
+  doc.text(now.toLocaleDateString('tr-TR'), PW-MR, 10, {align:'right'});
+  if (d.dsm) doc.text('DSM: ' + tr(d.dsm), PW-MR, 15, {align:'right'});
 
-  y = 58;
+  y = 22;
 
-  // ── Fotoğraflar ──────────────────────────────────────────────
-  const ownerSlots = [0, 1, 2].map(i => ppPhotoStore[dealer + '_owner_' + i]).filter(Boolean);
-  const dealerSlots = [0, 1, 2].map(i => ppPhotoStore[dealer + '_dealer_' + i]).filter(Boolean);
-  const allPhotos = [...ownerSlots, ...dealerSlots];
+  // ── FOTOĞRAFLAR ───────────────────────────────────────────
+  const ownerSlots  = [0,1,2].map(i => ppPhotoStore[dealer+'_owner_'+i]).filter(Boolean);
+  const dealerSlots = [0,1,2].map(i => ppPhotoStore[dealer+'_dealer_'+i]).filter(Boolean);
+  const allPhotos   = [...ownerSlots, ...dealerSlots];
 
   if (allPhotos.length > 0) {
-    y = sectionTitle('Photos', y);
-    const imgW = (PW - ML - MR - (allPhotos.length - 1) * 4) / Math.min(allPhotos.length, 3);
-    const imgH = imgW * 0.65;
+    const n = Math.min(allPhotos.length, 6);
+    const cols = Math.min(n, 3);
+    const gap = 3;
+    const imgW = (PW - ML - MR - (cols-1)*gap) / cols;
+    const imgH = imgW * 0.6;
     let px = ML;
-    allPhotos.slice(0, 6).forEach((b64, idx) => {
-      if (idx > 0 && idx % 3 === 0) { px = ML; y += imgH + 4; }
-      try { doc.addImage(b64, 'JPEG', px, y, imgW, imgH, undefined, 'FAST'); } catch(e) {}
-      px += imgW + 4;
+    allPhotos.slice(0,6).forEach((b64, idx) => {
+      if (idx > 0 && idx % cols === 0) { px = ML; y += imgH + gap; }
+      try { doc.addImage(b64,'JPEG',px,y,imgW,imgH,undefined,'FAST'); } catch(e){}
+      px += imgW + gap;
     });
-    y += imgH + 8;
+    y += imgH + 5;
   }
 
-  // ── Dealer Bilgi Tablosu ──────────────────────────────────────
-  checkPage(60);
-  y = sectionTitle('Dealer Information', y);
+  // ── DEALER OWNERS ─────────────────────────────────────────
+  const owners = [
+    {name:d.owner1, birth:d.birthdate1},
+    {name:d.owner2, birth:d.birthdate2},
+    {name:d.owner3, birth:null},
+  ].filter(o=>o.name);
 
-  const infoData = [
-    ['Dealer Name', dealer,           'City',          d.city || '—'],
-    ['Status',      d.status || '—',  'Hybrid',        d.hybrid || '—'],
-    ['Est. Year',   d.establishment || '—', 'Building', d.building || '—'],
-    ['Contact',     d.contact || '—', 'DSM',           d.dsm || '—'],
-    ['AM Dealer',   d.am_dealership || '—', 'Other Bus.', d.other_business ? doc.splitTextToSize(d.other_business, 50)[0] : '—'],
-    ['Education',   d.education || '—', 'Marital',     d.marital || '—'],
-    ['Hobbies',     d.hobbies || '—', '', ''],
+  if (owners.length) {
+    y = secTitle('Dealer Owners', y);
+    const ownerCols = owners.map(o => tr(o.name) + (o.birth ? '  (' + tr(o.birth) + ')' : ''));
+    doc.autoTable({
+      startY: y,
+      body: [ownerCols],
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 2, textColor: C.text },
+      margin: { left: ML, right: MR },
+    });
+    y = doc.lastAutoTable.finalY + 4;
+  }
+
+  // ── DEALER INFORMATION ────────────────────────────────────
+  y = secTitle('Dealer Information', y);
+  const infoRows = [
+    ['City', tr(d.city), 'Status', tr(d.status), 'Est.', tr(d.establishment)],
+    ['Building', tr(d.building), 'Hybrid', tr(d.hybrid), 'Contact', tr(d.contact)],
+    ['AM Dealer', tr(d.am_dealership), 'Other Business', tr(d.other_business ? d.other_business.substring(0,35) : ''), 'Education', tr(d.education)],
+    ['GM', tr(d.general_manager), 'Sales Mgr', tr(d.sales_manager), 'Advisors / Support / CRM', (d.sales_advisor||'—')+' / '+(d.sales_support||'—')+' / '+(d.cr_person||'—')],
   ].filter(row => row.some(c => c && c !== '—'));
 
   doc.autoTable({
     startY: y,
-    body: infoData,
+    body: infoRows,
     theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 2.5, textColor: C.text },
+    styles: { fontSize: 7, cellPadding: 1.8, textColor: C.text },
     columnStyles: {
-      0: { fontStyle: 'bold', textColor: C.muted, cellWidth: 28 },
-      1: { cellWidth: 52 },
-      2: { fontStyle: 'bold', textColor: C.muted, cellWidth: 28 },
-      3: { cellWidth: 52 },
+      0:{fontStyle:'bold', textColor:C.muted, cellWidth:22},
+      1:{cellWidth:35},
+      2:{fontStyle:'bold', textColor:C.muted, cellWidth:22},
+      3:{cellWidth:35},
+      4:{fontStyle:'bold', textColor:C.muted, cellWidth:22},
+      5:{cellWidth:35},
     },
     margin: { left: ML, right: MR },
   });
-  y = doc.lastAutoTable.finalY + 6;
+  y = doc.lastAutoTable.finalY + 4;
 
-  // ── Sahipler ──────────────────────────────────────────────────
-  const owners = [
-    { name: d.owner1, birth: d.birthdate1 },
-    { name: d.owner2, birth: d.birthdate2 },
-    { name: d.owner3, birth: null },
-  ].filter(o => o.name);
-
-  if (owners.length) {
-    checkPage(20);
-    y = sectionTitle('Dealer Owners', y);
-    const ownerRows = owners.map((o, i) => [
-      'Owner ' + (owners.length > 1 ? (i + 1) : ''),
-      o.name,
-      o.birth || '—',
-    ]);
-    doc.autoTable({
-      startY: y,
-      head: [['Role', 'Name', 'Birth Date']],
-      body: ownerRows,
-      theme: 'striped',
-      headStyles: { fillColor: C.mid, textColor: C.white, fontSize: 8, cellPadding: 2.5 },
-      bodyStyles: { fontSize: 8, cellPadding: 2.5 },
-      margin: { left: ML, right: MR },
-    });
-    y = doc.lastAutoTable.finalY + 6;
-  }
-
-  // ── Personel ──────────────────────────────────────────────────
-  const staffRows = [
-    d.general_manager ? ['General Manager', d.general_manager] : null,
-    d.sales_manager   ? ['Sales Manager',   d.sales_manager]   : null,
-    d.sales_advisor   ? ['Sales Advisors',  d.sales_advisor + ' people'] : null,
-    d.sales_support   ? ['Sales Support',   d.sales_support + ' people'] : null,
-    d.cr_person       ? ['CRM Personnel',   d.cr_person + ' people']     : null,
-  ].filter(Boolean);
-
-  if (staffRows.length) {
-    checkPage(20);
-    y = sectionTitle('Staff', y);
-    doc.autoTable({
-      startY: y,
-      body: staffRows,
-      theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      columnStyles: {
-        0: { fontStyle: 'bold', textColor: C.muted, cellWidth: 45 },
-        1: { cellWidth: 115 },
-      },
-      margin: { left: ML, right: MR },
-    });
-    y = doc.lastAutoTable.finalY + 6;
-  }
-
-  // ── Regional Bilgi ────────────────────────────────────────────
-  if (r && r.region) {
-    checkPage(30);
-    y = sectionTitle('Regional Information', y);
+  // ── REGIONAL INFORMATION ──────────────────────────────────
+  if (reg && reg.region) {
+    y = secTitle('Regional Information', y);
     const regRows = [
-      ['Region', r.region || '—',  'Climate', r.climate || '—'],
-      ['Population', r.pop ? r.pop + ' M' : '—',  'National Share', r.share ? r.share + '%' : '—'],
-      ['Avg. Monthly Income', r.income ? r.income.toLocaleString('tr-TR') + ' ₺' : '—', 'Income Index', r.incomeIdx ? r.incomeIdx + '/100' : '—'],
-      ['Main Livelihoods', r.livelihoods ? doc.splitTextToSize(r.livelihoods, 120)[0] : '—', '', ''],
+      ['Region', tr(reg.region), 'Climate', tr(reg.climate), 'Population', reg.pop ? reg.pop+' M ('+reg.share+'%)' : '—'],
+      ['Avg. Income', reg.income ? reg.income.toLocaleString('tr-TR')+' TL' : '—', 'Income Index', reg.incomeIdx ? reg.incomeIdx+'/100' : '—', 'Livelihoods', tr(reg.livelihoods ? reg.livelihoods.substring(0,35) : '')],
     ];
     doc.autoTable({
       startY: y,
       body: regRows,
       theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 2.5 },
+      styles: { fontSize: 7, cellPadding: 1.8, textColor: C.text },
       columnStyles: {
-        0: { fontStyle: 'bold', textColor: C.muted, cellWidth: 38 },
-        1: { cellWidth: 50 },
-        2: { fontStyle: 'bold', textColor: C.muted, cellWidth: 38 },
-        3: { cellWidth: 38 },
+        0:{fontStyle:'bold', textColor:C.muted, cellWidth:22},
+        1:{cellWidth:35},
+        2:{fontStyle:'bold', textColor:C.muted, cellWidth:22},
+        3:{cellWidth:35},
+        4:{fontStyle:'bold', textColor:C.muted, cellWidth:22},
+        5:{cellWidth:35},
       },
       margin: { left: ML, right: MR },
     });
-    y = doc.lastAutoTable.finalY + 6;
+    y = doc.lastAutoTable.finalY + 4;
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // PERFORMANCE SUMMARY
-  // ═══════════════════════════════════════════════════════════
-  checkPage(50);
-  y = sectionTitle('Performance Summary — ' + year, y);
+  // ── PERFORMANCE SUMMARY ───────────────────────────────────
+  y = secTitle('Performance Summary — ' + year, y);
 
   function calcSum(data) {
-    const v = data.filter(r => r.plan > 0);
-    const tp = v.reduce((a, r) => a + r.plan, 0);
-    const ta = v.reduce((a, r) => a + r.actual, 0);
-    return { plan: tp, actual: ta, pct: tp > 0 ? (ta / tp * 100).toFixed(1) : '—', has: v.length > 0 };
+    const v = data.filter(r=>r.plan>0);
+    const tp = v.reduce((a,r)=>a+r.plan,0);
+    const ta = v.reduce((a,r)=>a+r.actual,0);
+    return {plan:tp, actual:ta, pct:tp>0?(ta/tp*100).toFixed(1):'—', has:v.length>0};
   }
   function calcAvg(data) {
-    const v = data.filter(r => r.plan > 0);
-    if (!v.length) return { plan: '—', actual: '—', pct: '—', has: false };
-    const ap = v.reduce((a, r) => a + r.plan, 0) / v.length;
-    const aa = v.reduce((a, r) => a + r.actual, 0) / v.length;
-    return { plan: ap.toFixed(1), actual: aa.toFixed(1), pct: ap > 0 ? (aa / ap * 100).toFixed(1) : '—', has: true };
+    const v = data.filter(r=>r.plan>0);
+    if (!v.length) return {plan:'—', actual:'—', pct:'—', has:false};
+    const ap = v.reduce((a,r)=>a+r.plan,0)/v.length;
+    const aa = v.reduce((a,r)=>a+r.actual,0)/v.length;
+    return {plan:ap.toFixed(1), actual:aa.toFixed(1), pct:ap>0?(aa/ap*100).toFixed(1):'—', has:true};
   }
 
-  const rsD   = (perf.rs     || []).filter(r => r.year === year);
-  const wsD   = (perf.ws     || []).filter(r => r.year === year);
-  const dssiD = (perf.dssi   || []).filter(r => r.year === year);
-  const dlrD  = (perf.dlrcom || []).filter(r => r.year === year);
-  const quizD = (perf.quiz   || []).filter(r => r.year === year);
-  const msD   = (PP_MS[dealer] || []).filter(r => r.year === year);
-  const shopD = (PP_MSHOPPER[dealer] || []).filter(r => r.year === year);
+  const rsD   = (perf.rs     ||[]).filter(r=>r.year===year);
+  const wsD   = (perf.ws     ||[]).filter(r=>r.year===year);
+  const dssiD = (perf.dssi   ||[]).filter(r=>r.year===year);
+  const dlrD  = (perf.dlrcom ||[]).filter(r=>r.year===year);
+  const quizD = (perf.quiz   ||[]).filter(r=>r.year===year);
+  const msD   = (PP_MS[dealer]      ||[]).filter(r=>r.year===year);
+  const shopD = (PP_MSHOPPER[dealer]||[]).filter(r=>r.year===year);
 
   const rs   = calcSum(rsD);
   const ws   = calcSum(wsD);
@@ -3581,123 +3507,46 @@ function ppExportOverviewPDF() {
   const ms   = calcAvg(msD);
   const shop = calcAvg(shopD);
 
-  const summaryRows = [
-    ['Retail Sales (RS)',  rs.has   ? rs.plan + ' units'   : '—', rs.has   ? rs.actual + ' units'   : '—', rs.pct   + '%'],
-    ['Whole Sales (WS)',   ws.has   ? ws.plan + ' units'   : '—', ws.has   ? ws.actual + ' units'   : '—', ws.pct   + '%'],
-    ['Market Share',       ms.has   ? ms.plan + '%'        : '—', ms.has   ? ms.actual + '%'        : '—', ms.pct   + '%'],
-    ['DSSI',               dssi.has ? dssi.plan + '%'      : '—', dssi.has ? dssi.actual + '%'      : '—', dssi.pct + '%'],
-    ['Mystery Shopper',    shop.has ? shop.plan + ' pts'   : '—', shop.has ? shop.actual + ' pts'   : '—', shop.pct + '%'],
-    ['DLR COM',            dlr.has  ? dlr.plan + '%'       : '—', dlr.has  ? dlr.actual + '%'       : '—', dlr.pct  + '%'],
-    ['Quiz',               quiz.has ? quiz.plan + '%'      : '—', quiz.has ? quiz.actual + '%'      : '—', quiz.pct + '%'],
-  ];
+  const perfRows = [
+    rs.has   ? ['Retail Sales (RS)',   rs.plan+' units',    rs.actual+' units',   rs.pct+'%']   : null,
+    ws.has   ? ['Whole Sales (WS)',    ws.plan+' units',    ws.actual+' units',   ws.pct+'%']   : null,
+    ms.has   ? ['Market Share',        ms.plan+'%',         ms.actual+'%',        ms.pct+'%']   : null,
+    dssi.has ? ['DSSI',                dssi.plan+'%',       dssi.actual+'%',      dssi.pct+'%'] : null,
+    shop.has ? ['Mystery Shopper',     shop.plan+' pts',    shop.actual+' pts',   shop.pct+'%'] : null,
+    dlr.has  ? ['DLR COM',             dlr.plan+'%',        dlr.actual+'%',       dlr.pct+'%']  : null,
+    quiz.has ? ['Quiz',                quiz.plan+'%',       quiz.actual+'%',      quiz.pct+'%'] : null,
+  ].filter(Boolean);
 
   doc.autoTable({
     startY: y,
-    head: [['Metric', 'Plan / Target', 'Actual', 'Achievement %']],
-    body: summaryRows,
+    head: [['Metric','Plan / Target','Actual','Achievement %']],
+    body: perfRows,
     theme: 'grid',
-    headStyles: { fillColor: C.dark, textColor: C.white, fontStyle: 'bold', fontSize: 8, cellPadding: 3 },
-    bodyStyles: { fontSize: 8, cellPadding: 3 },
+    headStyles: {fillColor:C.dark, textColor:C.white, fontStyle:'bold', fontSize:7, cellPadding:2},
+    bodyStyles: {fontSize:7, cellPadding:2},
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 50 },
-      1: { halign: 'center', cellWidth: 45 },
-      2: { halign: 'center', cellWidth: 45 },
-      3: { halign: 'center', cellWidth: 42, fontStyle: 'bold' },
+      0:{fontStyle:'bold', cellWidth:50},
+      1:{halign:'center', cellWidth:44},
+      2:{halign:'center', cellWidth:44},
+      3:{halign:'center', cellWidth:40, fontStyle:'bold'},
     },
     didParseCell(data) {
-      if (data.column.index === 3 && data.section === 'body') {
+      if (data.column.index===3 && data.section==='body')
         data.cell.styles.textColor = pctColor(data.cell.raw);
-      }
     },
-    margin: { left: ML, right: MR },
+    margin: {left:ML, right:MR},
   });
-  y = doc.lastAutoTable.finalY + 8;
 
-  // ── Aylık Detay Tabloları (2 sütun yan yana) ─────────────────
-  function monthlyTable(title, rows, fillColor, startY, side) {
-    if (!rows || !rows.length) return startY;
-    const lft = side === 'left' ? ML : PW / 2 + 2;
-    const w = PW / 2 - ML - 2;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...C.dark);
-    doc.text(title, lft, startY);
-    doc.autoTable({
-      startY: startY + 2,
-      head: [['Month', 'Plan', 'Actual', '%']],
-      body: rows.map(r => [r.month, r.plan > 0 ? r.plan : '—', r.actual > 0 ? r.actual : '—', r.pct > 0 ? r.pct + '%' : '—']),
-      theme: 'striped',
-      headStyles: { fillColor: fillColor, textColor: C.white, fontSize: 7, cellPadding: 2 },
-      bodyStyles: { fontSize: 7, cellPadding: 2 },
-      columnStyles: {
-        0: { cellWidth: w * 0.30 },
-        1: { halign: 'center', cellWidth: w * 0.22 },
-        2: { halign: 'center', cellWidth: w * 0.22 },
-        3: { halign: 'center', cellWidth: w * 0.22, fontStyle: 'bold' },
-      },
-      didParseCell(data) {
-        if (data.column.index === 3 && data.section === 'body') {
-          data.cell.styles.textColor = pctColor(data.cell.raw);
-        }
-      },
-      tableWidth: w,
-      margin: { left: lft, right: PW - lft - w },
-    });
-    return doc.lastAutoTable.finalY;
-  }
+  // ── FOOTER ────────────────────────────────────────────────
+  doc.setFillColor(...C.dark);
+  doc.rect(0, PH-8, PW, 8, 'F');
+  doc.setFont('helvetica','normal'); doc.setFontSize(6); doc.setTextColor(...C.white);
+  doc.text('Honda Motosiklet - Bayi Ziyaret Sistemi', ML, PH-3);
+  doc.text('Sayfa 1 / 1', PW-MR, PH-3, {align:'right'});
 
-  // RS + WS yan yana
-  checkPage(70);
-  const rsEnd = monthlyTable('RETAIL SALES (RS) — MONTHLY', rsD, C.blue, y, 'left');
-  const wsEnd = monthlyTable('WHOLE SALES (WS) — MONTHLY', wsD, C.mid, y, 'right');
-  y = Math.max(rsEnd, wsEnd) + 8;
-
-  // DSSI + DLR COM yan yana
-  checkPage(70);
-  const dssiEnd = monthlyTable('DSSI — MONTHLY', dssiD, C.green, y, 'left');
-  const dlrEnd  = monthlyTable('DLR COM — MONTHLY', dlrD, [100, 60, 160], y, 'right');
-  y = Math.max(dssiEnd, dlrEnd) + 8;
-
-  // Mystery Shopper + Quiz yan yana
-  checkPage(70);
-  const shopEnd = monthlyTable('MYSTERY SHOPPER — MONTHLY', shopD, [180, 80, 0], y, 'left');
-  const quizEnd = monthlyTable('QUIZ — MONTHLY', quizD, [50, 120, 180], y, 'right');
-  y = Math.max(shopEnd, quizEnd) + 8;
-
-  // Market Share
-  if (msD.length) {
-    checkPage(50);
-    y = sectionTitle('Market Share — Monthly', y);
-    doc.autoTable({
-      startY: y,
-      head: [['Month', 'Plan %', 'Actual %', 'Achievement']],
-      body: msD.map(r => [r.month, r.plan > 0 ? r.plan + '%' : '—', r.actual > 0 ? r.actual + '%' : '—', r.pct > 0 ? r.pct + '%' : '—']),
-      theme: 'striped',
-      headStyles: { fillColor: C.dark, textColor: C.white, fontSize: 8, cellPadding: 2.5 },
-      bodyStyles: { fontSize: 8, cellPadding: 2.5 },
-      columnStyles: {
-        0: { cellWidth: 35 },
-        1: { halign: 'center', cellWidth: 45 },
-        2: { halign: 'center', cellWidth: 45 },
-        3: { halign: 'center', cellWidth: 45, fontStyle: 'bold' },
-      },
-      didParseCell(data) {
-        if (data.column.index === 3 && data.section === 'body') {
-          data.cell.styles.textColor = pctColor(data.cell.raw);
-        }
-      },
-      margin: { left: ML, right: MR },
-    });
-    y = doc.lastAutoTable.finalY + 8;
-  }
-
-  // ── Footer ────────────────────────────────────────────────────
-  drawFooter();
-
-  doc.save(dealer + ' One Page Report.pdf');
+  doc.save(tr(dealer) + ' One Page Report.pdf');
   toast('✅ PDF oluşturuldu!', 'green');
 }
-
 // ── Mystery Shopper Tab ──────────────────────────────────────
 function ppRenderMshopperTab(rows) {
   if (!rows || rows.length === 0)
