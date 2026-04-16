@@ -5947,6 +5947,7 @@ function renderFcPanel() {
 
   // Görünüm sekmeleri — her zaman göster
   var views = [
+    {id:'genel', label:'🌐 Genel'},
     {id:'dealer', label:'📋 Bayi Bazlı'},
     {id:'segment', label:'🔢 Segment Bazlı'},
     {id:'model', label:'🏍️ Model Bazlı'},
@@ -5996,15 +5997,29 @@ function renderFcPanel() {
       '</div></div>';
   }
 
-  var content = '<div class="page-title">📈 Retail Forecast</div>' +
-    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">' +
-    '<div style="font-size:13px;color:var(--muted)">Dönem:</div>' + periodSel +
-    '<div style="font-size:12px;color:var(--muted)">' + myDealers.length + ' bayi</div>' +
-    '</div>' +
-    dealerFilter +
-    '<div style="border-bottom:1px solid var(--border);margin-bottom:16px">'+viewTabs+'</div>';
+  var content = '<div class="page-title">📈 Retail Forecast</div>';
 
-  if (FC_VIEW === 'dealer') content += fcRenderDealerView(period, myDealers);
+  // Genel sekmesinde dönem seçici ve bayi filtresi gösterilmez
+  if (FC_VIEW !== 'genel') {
+    content +=
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">' +
+      '<div style="font-size:13px;color:var(--muted)">Dönem:</div>' + periodSel +
+      '<div style="font-size:12px;color:var(--muted)">' + myDealers.length + ' bayi</div>' +
+      '</div>' +
+      dealerFilter;
+  } else {
+    content +=
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">' +
+      '<div style="font-size:13px;color:var(--muted)">Dönem:</div>' + periodSel +
+      '</div>';
+  }
+
+  content += '<div style="border-bottom:1px solid var(--border);margin-bottom:16px">'+viewTabs+'</div>';
+
+  if (FC_VIEW === 'genel') {
+    var allDealersForGenel = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
+    content += fcRenderGenelView(period, allDealersForGenel);
+  } else if (FC_VIEW === 'dealer') content += fcRenderDealerView(period, myDealers);
   else if (FC_VIEW === 'segment') content += fcRenderSegmentView(period, myDealers);
   else if (FC_VIEW === 'model') content += fcRenderModelView(period, myDealers);
   else if (FC_VIEW === 'eval') content += fcRenderEvalView(period, myDealers, isAdmin);
@@ -6015,6 +6030,10 @@ function renderFcPanel() {
   // Grafikleri çiz
   if (FC_VIEW === 'eval') {
     setTimeout(function() { fcDrawCharts(period, myDealers); }, 80);
+  }
+  if (FC_VIEW === 'genel') {
+    var allDealersForGenelChart = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
+    setTimeout(function() { fcDrawGenelChart(period, allDealersForGenelChart); }, 80);
   }
 }
 
@@ -6028,6 +6047,259 @@ function fcToggleDealer(dn) {
   if (idx >= 0) FC_SELECTED_DEALERS.splice(idx, 1);
   else FC_SELECTED_DEALERS.push(dn);
   renderFcPanel();
+}
+
+// ── GÖRÜNÜM 0: GENEL ─────────────────────────────────────────────────────────
+var FC_GENEL_SEL = 'Grand TTL'; // seçili model/segment
+
+function fcRenderGenelView(period, dealers) {
+  if (!dealers.length) return '<div style="padding:32px;text-align:center;color:var(--muted)">Veri yok.</div>';
+
+  // Tüm seçenekler: segmentler + modeller
+  var opts = ['Grand TTL'];
+  FC_SEGMENTS.forEach(function(seg) {
+    opts.push('__seg__' + seg.key); // segment toplam
+    seg.models.forEach(function(m) { opts.push(m); });
+  });
+
+  var selHtml = '<select id="fc-genel-sel" onchange="FC_GENEL_SEL=this.value; fcDrawGenelChart(\''+period+'\','+JSON.stringify(dealers)+'); " '
+    + 'style="background:var(--mid);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-size:13px;font-family:inherit;min-width:200px">';
+  opts.forEach(function(o) {
+    var lbl = o.startsWith('__seg__')
+      ? ('── ' + FC_SEGMENTS.find(function(s){return s.key===o.replace('__seg__','');}).label + ' Toplam')
+      : o;
+    selHtml += '<option value="'+o+'"'+(o===FC_GENEL_SEL?' selected':'')+'>'+lbl+'</option>';
+  });
+  selHtml += '</select>';
+
+  // ── Tablo 1: Tüm modeller + segment toplamları ────────────────────────────
+  var activeWk = fcActiveWeek(period, dealers) || 'w1';
+
+  function buildRowData(models, segKey) {
+    // modeller listesi veya tek segment
+    var tot = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+    models.forEach(function(m) {
+      var mt = fcModelTotal(period, dealers, m);
+      tot.target += mt.target; tot.w1act += mt.w1act; tot.w2act += mt.w2act;
+      tot.w3act += mt.w3act; tot.w4act += mt.w4act;
+    });
+    return tot;
+  }
+
+  function tbl1Row(label, data, isTotal, indent) {
+    var cells = '<td style="padding-left:'+(indent||8)+'px;font-size:12px;font-weight:'+(isTotal?700:400)+'">'+label+'</td>';
+    cells += '<td style="text-align:center;font-weight:700;color:var(--blue);font-size:12px">'+(data.target||0)+'</td>';
+    FC_WEEKS.forEach(function(wk) {
+      var act = data[wk+'act']||0;
+      var pace = fcPace(act, wk);
+      var eva = fcEva(pace, data.target);
+      var isAW = wk === activeWk;
+      cells += '<td style="text-align:center;font-size:12px;color:'+(act>0?'var(--text)':'var(--muted)')+';'+(isAW?'background:rgba(29,78,216,0.04)':'')+'">'+( act||'—')+'</td>';
+      cells += '<td style="text-align:center;font-size:12px;color:var(--muted);'+(isAW?'background:rgba(29,78,216,0.04)':'')+'">'+( act>0?pace:'—')+'</td>';
+      cells += '<td style="text-align:center;'+(isAW?'background:rgba(29,78,216,0.04)':'')+'">'+( act>0?fcEvaBadge(eva):'<span style="color:var(--muted)">—</span>')+'</td>';
+    });
+    return '<tr style="background:'+(isTotal?'rgba(29,78,216,0.04)':'transparent')+'">'+cells+'</tr>';
+  }
+
+  var tbl1Head = '<thead><tr style="background:var(--mid)">'
+    + '<th style="min-width:180px;padding:8px;font-size:10px;text-transform:uppercase;letter-spacing:1px">Model</th>'
+    + '<th style="text-align:center;color:var(--blue);font-size:10px;padding:8px">Target</th>';
+  FC_WEEKS.forEach(function(wk) {
+    var isAW = wk === activeWk;
+    tbl1Head += '<th colspan="3" style="text-align:center;border-left:1px solid var(--border);font-size:10px;padding:8px;'+(isAW?'color:var(--red);font-weight:700':'')+'">'
+      + FC_WEEK_LABELS[wk]+(isAW?' ★':'')+'</th>';
+  });
+  tbl1Head += '</tr><tr style="background:var(--mid)"><th></th><th></th>';
+  FC_WEEKS.forEach(function() {
+    tbl1Head += '<th style="font-size:9px;text-align:center;color:var(--green);border-left:1px solid var(--border);padding:4px">Act</th>';
+    tbl1Head += '<th style="font-size:9px;text-align:center;color:var(--muted);padding:4px">Pace</th>';
+    tbl1Head += '<th style="font-size:9px;text-align:center;color:var(--yellow);padding:4px">Eva</th>';
+  });
+  tbl1Head += '</tr></thead>';
+
+  var tbl1Body = '<tbody>';
+  var grandTot = {target:0,w1act:0,w2act:0,w3act:0,w4act:0};
+  FC_SEGMENTS.forEach(function(seg) {
+    var segTot = {target:0,w1act:0,w2act:0,w3act:0,w4act:0};
+    tbl1Body += '<tr><td colspan="14" style="padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:'+seg.color+';background:rgba(0,0,0,0.02)">── '+seg.label+'</td></tr>';
+    seg.models.forEach(function(m) {
+      var mt = fcModelTotal(period, dealers, m);
+      tbl1Body += tbl1Row(m, mt, false, 20);
+      segTot.target+=mt.target; segTot.w1act+=mt.w1act; segTot.w2act+=mt.w2act; segTot.w3act+=mt.w3act; segTot.w4act+=mt.w4act;
+    });
+    tbl1Body += tbl1Row(seg.label+' TTL', segTot, true, 8);
+    grandTot.target+=segTot.target; grandTot.w1act+=segTot.w1act; grandTot.w2act+=segTot.w2act; grandTot.w3act+=segTot.w3act; grandTot.w4act+=segTot.w4act;
+  });
+  tbl1Body += tbl1Row('GRAND TOTAL', grandTot, true, 8);
+  tbl1Body += '</tbody>';
+
+  // ── Tablo 2: Sadece segment toplamları ────────────────────────────────────
+  var tbl2Rows = '<tbody>';
+  FC_SEGMENTS.forEach(function(seg) {
+    var st = fcSegmentTotal(period, dealers, seg);
+    var pace = fcPace(st[activeWk+'act'], activeWk);
+    var eva = fcEva(pace, st.target);
+    tbl2Rows += '<tr>'
+      + '<td style="font-weight:700;font-size:13px;color:'+seg.color+'">'+seg.label+'</td>'
+      + '<td style="text-align:center;font-weight:700;color:var(--blue)">'+(st.target||0)+'</td>'
+      + '<td style="text-align:center;color:var(--text)">'+(st[activeWk+'act']||'—')+'</td>'
+      + '<td style="text-align:center;color:var(--muted)">'+(st[activeWk+'act']>0?pace:'—')+'</td>'
+      + '<td style="text-align:center">'+(st[activeWk+'act']>0?fcEvaBadge(eva):'<span style="color:var(--muted)">—</span>')+'</td>'
+      + '</tr>';
+  });
+  // Grand total satırı
+  var gt = {target:0,w1act:0,w2act:0,w3act:0,w4act:0};
+  dealers.forEach(function(dn){var t=fcDealerTotal(period,dn);gt.target+=t.target;gt.w1act+=t.w1act;gt.w2act+=t.w2act;gt.w3act+=t.w3act;gt.w4act+=t.w4act;});
+  var gtPace = fcPace(gt[activeWk+'act'], activeWk);
+  var gtEva = fcEva(gtPace, gt.target);
+  tbl2Rows += '<tr style="background:rgba(29,78,216,0.04);font-weight:700">'
+    + '<td style="font-weight:700">GRAND TOTAL</td>'
+    + '<td style="text-align:center;color:var(--blue);font-weight:700">'+(gt.target||0)+'</td>'
+    + '<td style="text-align:center">'+(gt[activeWk+'act']||'—')+'</td>'
+    + '<td style="text-align:center;color:var(--muted)">'+(gt[activeWk+'act']>0?gtPace:'—')+'</td>'
+    + '<td style="text-align:center">'+(gt[activeWk+'act']>0?fcEvaBadge(gtEva):'<span style="color:var(--muted)">—</span>')+'</td>'
+    + '</tr>';
+  tbl2Rows += '</tbody>';
+
+  var html =
+    // Grafik
+    '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px">'
+    + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">'
+    + '<div style="font-size:13px;font-weight:700">Haftalık Trend</div>'
+    + selHtml
+    + '<div style="font-size:11px;color:var(--muted)">Hedef · Actual · Pace</div>'
+    + '</div>'
+    + '<canvas id="fcGenelChart" height="220"></canvas>'
+    + '</div>'
+
+    // Tablo 1
+    + '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:20px">'
+    + '<div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">'
+    + 'Model & Segment Bazlı Özet — Tüm Bayiler'
+    + '<span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px">★ aktif hafta</span>'
+    + '</div>'
+    + '<div style="overflow-x:auto"><table class="data-table" style="margin:0">'
+    + tbl1Head + tbl1Body
+    + '</table></div></div>'
+
+    // Tablo 2
+    + '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:20px">'
+    + '<div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">'
+    + 'Segment Özet — '+FC_WEEK_LABELS[activeWk]+' Gerçekleşme'
+    + '</div>'
+    + '<div style="overflow-x:auto"><table class="data-table" style="margin:0">'
+    + '<thead><tr style="background:var(--mid)">'
+    + '<th style="padding:8px;font-size:10px;text-transform:uppercase;letter-spacing:1px">Segment</th>'
+    + '<th style="text-align:center;color:var(--blue);font-size:10px;padding:8px">Target</th>'
+    + '<th style="text-align:center;color:var(--green);font-size:10px;padding:8px">Act</th>'
+    + '<th style="text-align:center;color:var(--muted);font-size:10px;padding:8px">Pace</th>'
+    + '<th style="text-align:center;color:var(--yellow);font-size:10px;padding:8px">Eva</th>'
+    + '</tr></thead>'
+    + tbl2Rows
+    + '</table></div></div>';
+
+  return html;
+}
+
+function fcDrawGenelChart(period, dealers) {
+  if (typeof Chart === 'undefined') return;
+  var sel = document.getElementById('fc-genel-sel');
+  var selVal = sel ? sel.value : (FC_GENEL_SEL || 'Grand TTL');
+  FC_GENEL_SEL = selVal;
+
+  // Seçilen model/segment için haftalık verileri topla
+  function getWeekData(wk) {
+    var tot = {target:0, act:0};
+    dealers.forEach(function(dn) {
+      var d = fcGetDealer(period, dn);
+      if (selVal === 'Grand TTL') {
+        FC_ALL_MODELS.forEach(function(m) {
+          if (!d[m]) return;
+          tot.target += d[m].target||0;
+          tot.act += d[m][wk+'act']||0;
+        });
+      } else if (selVal.startsWith('__seg__')) {
+        var segKey = selVal.replace('__seg__','');
+        var seg = FC_SEGMENTS.find(function(s){return s.key===segKey;});
+        if (seg) seg.models.forEach(function(m) {
+          if (!d[m]) return;
+          tot.target += d[m].target||0;
+          tot.act += d[m][wk+'act']||0;
+        });
+      } else {
+        if (d[selVal]) {
+          tot.target += d[selVal].target||0;
+          tot.act += d[selVal][wk+'act']||0;
+        }
+      }
+    });
+    return tot;
+  }
+
+  var labels = FC_WEEKS.map(function(wk){ return FC_WEEK_LABELS[wk]; });
+  var targetData = [], actData = [], paceData = [];
+  FC_WEEKS.forEach(function(wk) {
+    var d = getWeekData(wk);
+    targetData.push(d.target);
+    actData.push(d.act > 0 ? d.act : null);
+    paceData.push(d.act > 0 ? fcPace(d.act, wk) : null);
+  });
+
+  var ca = document.getElementById('fcGenelChart');
+  if (!ca) return;
+  if (ca._ci) { ca._ci.destroy(); ca._ci = null; }
+
+  ca._ci = new Chart(ca, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Target',
+          data: targetData,
+          backgroundColor: 'rgba(29,78,216,0.15)',
+          borderColor: 'rgba(29,78,216,0.6)',
+          borderWidth: 2,
+          borderRadius: 4,
+          type: 'bar'
+        },
+        {
+          label: 'Actual',
+          data: actData,
+          backgroundColor: 'rgba(21,128,61,0.7)',
+          borderColor: 'rgba(21,128,61,0.9)',
+          borderWidth: 2,
+          borderRadius: 4,
+          type: 'bar'
+        },
+        {
+          label: 'Pace',
+          data: paceData,
+          borderColor: 'rgba(202,138,4,0.9)',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [6,3],
+          pointRadius: 6,
+          pointBackgroundColor: 'rgba(202,138,4,0.9)',
+          tension: 0,
+          type: 'line',
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#7A8FA3', font: { size: 11 } } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        y: { ticks: { color: '#7A8FA3' }, grid: { color: 'rgba(209,220,232,0.3)' }, beginAtZero: true },
+        x: { ticks: { color: '#7A8FA3' }, grid: { display: false } }
+      }
+    }
+  });
 }
 
 // ── GÖRÜNÜM 1: BAYİ BAZLI ────────────────────────────────────────────────────
