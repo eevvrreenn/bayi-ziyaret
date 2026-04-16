@@ -2675,7 +2675,7 @@ let PP_FC_CURRENT = null;
 
 async function ppLoadPerfFromDb() {
   try {
-    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef,pp_personel_hedef,pp_dbs_hedef,pp_fc_index,pp_fc_weights)&select=key,value', {
+    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef,pp_personel_hedef,pp_dbs_hedef,pp_fc_index,pp_fc_weights,pp_photos)&select=key,value', {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY }
     });
     if (!res.ok) return false;
@@ -2697,6 +2697,7 @@ async function ppLoadPerfFromDb() {
         if (row.key === 'pp_personel_hedef') Object.assign(PP_PERSONEL_HEDEF, data);
         if (row.key === 'pp_dbs_hedef') Object.assign(PP_DBS_HEDEF, data);
         if (row.key === 'pp_fc_weights') Object.assign(PP_FC_WEIGHTS, data);
+        if (row.key === 'pp_photos') Object.assign(ppPhotoStore, data);
         if (row.key === 'pp_fc_index') fcPeriodIndex = data; // dönem listesi
         // Eski format desteği
         if (row.key === 'pp_fc') { Object.assign(PP_FC, data); if (!PP_FC_CURRENT) { var periods = Object.keys(PP_FC).sort(); if (periods.length) PP_FC_CURRENT = periods[periods.length-1]; } }
@@ -2764,18 +2765,21 @@ const ppPhotoStore = {};
 // Fotoğrafları DB'den yükle
 async function ppLoadPhotosFromDb() {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/pp_photos?select=slot_id,url`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/pp_kv_store?key=eq.pp_photos&select=key,value`, {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
     });
     if (!res.ok) return;
     const rows = await res.json();
-    rows.forEach(r => { if (r.slot_id && r.url) ppPhotoStore[r.slot_id] = r.url; });
+    if (rows && rows[0] && rows[0].value) {
+      Object.assign(ppPhotoStore, JSON.parse(rows[0].value));
+    }
   } catch(e) { /* erişilemez */ }
 }
 
-// Fotoğrafı base64 olarak pp_photos tablosuna kaydet
+// Fotoğrafı pp_kv_store'a kaydet
 async function ppSavePhotoToDb(slotId, base64) {
-  await fetch(`${SUPABASE_URL}/rest/v1/pp_photos`, {
+  ppPhotoStore[slotId] = base64;
+  await fetch(`${SUPABASE_URL}/rest/v1/pp_kv_store`, {
     method: 'POST',
     headers: {
       'apikey': SUPABASE_KEY,
@@ -2783,15 +2787,22 @@ async function ppSavePhotoToDb(slotId, base64) {
       'Content-Type': 'application/json',
       'Prefer': 'resolution=merge-duplicates'
     },
-    body: JSON.stringify({ slot_id: slotId, url: base64 })
+    body: JSON.stringify({ key: 'pp_photos', value: JSON.stringify(ppPhotoStore) })
   });
 }
 
-// Fotoğrafı DB'den sil
+// Fotoğrafı sil
 async function ppDeletePhotoFromDb(slotId) {
-  await fetch(`${SUPABASE_URL}/rest/v1/pp_photos?slot_id=eq.${encodeURIComponent(slotId)}`, {
-    method: 'DELETE',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+  delete ppPhotoStore[slotId];
+  await fetch(`${SUPABASE_URL}/rest/v1/pp_kv_store`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates'
+    },
+    body: JSON.stringify({ key: 'pp_photos', value: JSON.stringify(ppPhotoStore) })
   });
 }
 
@@ -2870,7 +2881,6 @@ function renderPerfPanel() {
         renderPerfPanel(); // veri gelince yeniden render
       }
     });
-    ppLoadPhotosFromDb();
   }
   const years = ppGetAvailableYears();
   if (!years.includes(ppCurrentYear) && years.length > 0) ppCurrentYear = years[0];
