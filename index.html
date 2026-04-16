@@ -591,6 +591,7 @@ function saveConfig() {
     <button class="drawer-nav-btn" onclick="showPage('tum-raporlar');closeDrawer()"><span class="icon">📋</span> Tüm Raporlar</button>
     <button class="drawer-nav-btn" onclick="showPage('perf-panel');closeDrawer()"><span class="icon">🏆</span> Performans Paneli</button>
     <button class="drawer-nav-btn" onclick="showPage('etkinlik');closeDrawer()"><span class="icon">🎪</span> Etkinlik Yönetimi</button>
+    <button class="drawer-nav-btn" onclick="showPage('fc');closeDrawer()"><span class="icon">📈</span> Retail Forecast</button>
     <button class="drawer-nav-btn admin-only" id="drawer-admin-btn" onclick="showPage('admin-panel');closeDrawer()" style="display:none"><span class="icon">⚙️</span> Yönetim Paneli</button>
   </div>
   <div class="drawer-section-title">Bölge Müdürleri</div>
@@ -612,6 +613,7 @@ function saveConfig() {
     <button class="nav-btn" onclick="showPage('tum-raporlar')">Tüm Raporlar</button>
     <button class="nav-btn" onclick="showPage('perf-panel')">🏆 Performans</button>
     <button class="nav-btn" onclick="showPage('etkinlik')">🎪 Etkinlik</button>
+    <button class="nav-btn" onclick="showPage('fc')">📈 Forecast</button>
     <button class="nav-btn admin-only" id="nav-admin-btn" onclick="showPage('admin-panel')" style="display:none">⚙️ Yönetim</button>
   </div>
   <div class="user-info">
@@ -1071,7 +1073,7 @@ function closeDrawer() {
 function updateNavActive(page) {
   // Desktop nav
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  const navMap = {'yeni-rapor':0,'dashboard':1,'takvim':2,'tum-raporlar':3,'perf-panel':4,'etkinlik':5};
+  const navMap = {'yeni-rapor':0,'dashboard':1,'takvim':2,'tum-raporlar':3,'perf-panel':4,'etkinlik':5,'fc':6};
   const nb = document.querySelectorAll('.nav-btn')[navMap[page]];
   if (nb) nb.classList.add('active');
   // Bottom nav
@@ -1093,6 +1095,7 @@ function showPage(page) {
   else if (page==='tum-raporlar') renderTumRaporlar();
   else if (page==='perf-panel') renderPerfPanel();
   else if (page==='etkinlik') renderEtkinlikPanel();
+  else if (page==='fc') renderFcPanel();
   else if (page==='admin-panel') renderAdminPanel();
 }
 
@@ -2652,10 +2655,17 @@ let PP_TEST_HEDEF = {};
 let PP_PERSONEL_HEDEF = {};
 // PP_DBS_HEDEF: {dealer: hedef} — DBS Limit hedefi
 let PP_DBS_HEDEF = {};
+// PP_FC: {period: {dealer: {model: {target, w1act, w2act, w3act, w4act}}}}
+// period formatı: "2026-04"
+let PP_FC = {};
+// PP_FC_WEIGHTS: {w1: 0.11, w2: 0.35, w3: 0.74, w4: 1.0}
+let PP_FC_WEIGHTS = {w1: 0.11, w2: 0.35, w3: 0.74, w4: 1.0};
+// PP_FC_CURRENT: aktif dönem "2026-04"
+let PP_FC_CURRENT = null;
 
 async function ppLoadPerfFromDb() {
   try {
-    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef,pp_personel_hedef,pp_dbs_hedef)&select=key,value', {
+    const res = await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store?key=in.(pp_perf,pp_ms,pp_mshopper,pp_regional,pp_data,pp_visit,pp_test_hedef,pp_personel_hedef,pp_dbs_hedef,pp_fc,pp_fc_weights)&select=key,value', {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY }
     });
     if (!res.ok) return false;
@@ -2673,6 +2683,8 @@ async function ppLoadPerfFromDb() {
         if (row.key === 'pp_test_hedef') Object.assign(PP_TEST_HEDEF, data);
         if (row.key === 'pp_personel_hedef') Object.assign(PP_PERSONEL_HEDEF, data);
         if (row.key === 'pp_dbs_hedef') Object.assign(PP_DBS_HEDEF, data);
+        if (row.key === 'pp_fc') { Object.assign(PP_FC, data); if (!PP_FC_CURRENT) { var periods = Object.keys(PP_FC).sort(); if (periods.length) PP_FC_CURRENT = periods[periods.length-1]; } }
+        if (row.key === 'pp_fc_weights') Object.assign(PP_FC_WEIGHTS, data);
       } catch(e) {}
     });
     return true;
@@ -2690,6 +2702,8 @@ async function ppSaveAllToDb() {
     { key: 'pp_test_hedef',    data: PP_TEST_HEDEF },
     { key: 'pp_personel_hedef', data: PP_PERSONEL_HEDEF },
     { key: 'pp_dbs_hedef',       data: PP_DBS_HEDEF },
+    { key: 'pp_fc',              data: PP_FC },
+    { key: 'pp_fc_weights',      data: PP_FC_WEIGHTS },
   ];
   for (var i=0; i<saves.length; i++) {
     try {
@@ -5744,6 +5758,1490 @@ function adminRenderMudurOzet(c) {
 
 function etkFc(n) { if(n>=1000) return '₺'+(n/1000).toFixed(0)+'K'; return '₺'+n; }
 function etkFcf(n) { return '₺'+n.toLocaleString('tr-TR'); }
+
+// ============================================================
+// RETAIL FORECAST PANELİ
+// ============================================================
+
+// Model grupları tanımı
+var FC_SEGMENTS = [
+  { key:'commuter', label:'Commuter', color:'#1D4ED8', models:['PCX-125','SH125i','CB125F','Monkey'] },
+  { key:'fun250', label:'Fun 250cc', color:'#7C3AED', models:['Forza250','Forza250 OP','CRF250RL','CL250'] },
+  { key:'fun500', label:'Fun 250-500cc', color:'#0891B2', models:['ADV350','CB500R','CBR500R','NX500'] },
+  { key:'fun750', label:'Fun 500-750cc', color:'#059669', models:['CB650R','CBR650R','NC750X','NC750X DCT','Forza750','X-ADV','CB750','XL750'] },
+  { key:'above', label:'Fun 750cc+', color:'#DC2626', models:['NT1100','NT1100 DCT','Africa Twin L1 MT','Africa Twin L3 DCT','Africa Twin L4 MT','Africa Twin L4 DCT','CBR1000RRR','Bagger DCT','Goldwing DCT'] }
+];
+var FC_ALL_MODELS = FC_SEGMENTS.reduce(function(a,s){return a.concat(s.models);}, []);
+
+// Haftalar
+var FC_WEEKS = ['w1','w2','w3','w4'];
+var FC_WEEK_LABELS = {w1:'1W',w2:'2W',w3:'3W',w4:'4W'};
+
+// Dönem formatı "2026-04" → "Nis 2026"
+function fcPeriodLabel(p) {
+  if (!p) return '—';
+  var parts = p.split('-');
+  var months = ['','Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+  return months[parseInt(parts[1])||0] + ' ' + parts[0];
+}
+
+// Pace hesapla: Act / Weight
+function fcPace(act, wKey) {
+  var w = PP_FC_WEIGHTS[wKey] || 1;
+  if (!act || w === 0) return 0;
+  return Math.round(act / w);
+}
+
+// Eva hesapla: Pace / Target × 100
+function fcEva(pace, target) {
+  if (!target || target === 0) return null;
+  return Math.round((pace / target) * 100);
+}
+
+// Eva rengi
+function fcEvaColor(pct) {
+  if (pct === null || pct === undefined) return 'var(--muted)';
+  if (pct >= 100) return 'var(--green)';
+  if (pct >= 80) return 'var(--yellow)';
+  return 'var(--accent)';
+}
+
+// Eva badge
+function fcEvaBadge(pct) {
+  if (pct === null || pct === undefined) return '<span style="color:var(--muted)">—</span>';
+  var col = fcEvaColor(pct);
+  return '<span style="font-weight:700;color:'+col+'">%'+pct+'</span>';
+}
+
+// Bayi verisini al: {model: {target, w1act, w2act, w3act, w4act}}
+function fcGetDealer(period, dealer) {
+  return (PP_FC[period] || {})[dealer] || {};
+}
+
+// Dealer toplam: tüm modellerin toplamı
+function fcDealerTotal(period, dealer) {
+  var d = fcGetDealer(period, dealer);
+  var result = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+  FC_ALL_MODELS.forEach(function(m) {
+    if (!d[m]) return;
+    result.target += d[m].target||0;
+    result.w1act += d[m].w1act||0;
+    result.w2act += d[m].w2act||0;
+    result.w3act += d[m].w3act||0;
+    result.w4act += d[m].w4act||0;
+  });
+  return result;
+}
+
+// Segment toplam için dealer listesi
+function fcSegmentTotal(period, dealers, segment) {
+  var result = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+  dealers.forEach(function(dn) {
+    var d = fcGetDealer(period, dn);
+    segment.models.forEach(function(m) {
+      if (!d[m]) return;
+      result.target += d[m].target||0;
+      result.w1act += d[m].w1act||0;
+      result.w2act += d[m].w2act||0;
+      result.w3act += d[m].w3act||0;
+      result.w4act += d[m].w4act||0;
+    });
+  });
+  return result;
+}
+
+// Model toplam için dealer listesi
+function fcModelTotal(period, dealers, model) {
+  var result = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+  dealers.forEach(function(dn) {
+    var d = fcGetDealer(period, dn);
+    if (!d[model]) return;
+    result.target += d[model].target||0;
+    result.w1act += d[model].w1act||0;
+    result.w2act += d[model].w2act||0;
+    result.w3act += d[model].w3act||0;
+    result.w4act += d[model].w4act||0;
+  });
+  return result;
+}
+
+// Son aktif hafta (verisi olan)
+function fcActiveWeek(period, dealers) {
+  var last = null;
+  FC_WEEKS.forEach(function(wk) {
+    var total = 0;
+    dealers.forEach(function(dn) {
+      var d = fcGetDealer(period, dn);
+      FC_ALL_MODELS.forEach(function(m) { if (d[m]) total += d[m][wk+'act']||0; });
+    });
+    if (total > 0) last = wk;
+  });
+  return last;
+}
+
+// ── Tablo satırı: bir kayıt (target + 4 hafta) ────────────────────────────────
+function fcRow(label, data, isTotal, indent) {
+  var cells = '<td style="font-weight:'+(isTotal?'700':'500')+';padding-left:'+(indent||8)+'px;font-size:12px;white-space:nowrap">'+label+'</td>';
+  cells += '<td style="text-align:center;font-weight:700;font-size:12px;color:var(--blue)">'+( data.target||0)+'</td>';
+  FC_WEEKS.forEach(function(wk) {
+    var act = data[wk+'act']||0;
+    var pace = fcPace(act, wk);
+    var eva = fcEva(pace, data.target);
+    var actCol = act > 0 ? 'var(--text)' : 'var(--muted)';
+    cells += '<td style="text-align:center;font-size:12px;color:'+actCol+'">'+(act||'—')+'</td>';
+    cells += '<td style="text-align:center;font-size:12px;font-style:italic;color:var(--muted)">'+(act>0?pace:'—')+'</td>';
+    cells += '<td style="text-align:center">'+(act>0?fcEvaBadge(eva):'<span style="color:var(--muted)">—</span>')+'</td>';
+  });
+  return '<tr style="background:'+(isTotal?'rgba(29,78,216,0.04)':'transparent')+'">'+cells+'</tr>';
+}
+
+// ── Tablo başlık ──────────────────────────────────────────────────────────────
+function fcTableHeader() {
+  var hdr = '<tr style="background:var(--mid)">';
+  hdr += '<th style="padding:8px;font-size:10px;text-transform:uppercase;letter-spacing:1px;min-width:160px">Model / Segment</th>';
+  hdr += '<th style="padding:8px;font-size:10px;text-transform:uppercase;text-align:center;color:var(--blue)">Target</th>';
+  FC_WEEKS.forEach(function(wk) {
+    var lbl = FC_WEEK_LABELS[wk];
+    hdr += '<th colspan="3" style="padding:8px;font-size:10px;text-transform:uppercase;text-align:center;border-left:1px solid var(--border)">'+lbl+'</th>';
+  });
+  hdr += '</tr>';
+  hdr += '<tr style="background:var(--mid)">';
+  hdr += '<th></th><th></th>';
+  FC_WEEKS.forEach(function() {
+    hdr += '<th style="padding:4px 6px;font-size:9px;text-align:center;color:var(--green);border-left:1px solid var(--border)">Act</th>';
+    hdr += '<th style="padding:4px 6px;font-size:9px;text-align:center;color:var(--muted)">Pace</th>';
+    hdr += '<th style="padding:4px 6px;font-size:9px;text-align:center;color:var(--yellow)">Eva</th>';
+  });
+  hdr += '</tr>';
+  return hdr;
+}
+
+// ── Performans skoru (0-100) ve rengi ─────────────────────────────────────────
+function fcScoreColor(pct) {
+  if (pct >= 100) return '#15803D';
+  if (pct >= 90) return '#16A34A';
+  if (pct >= 75) return '#CA8A04';
+  if (pct >= 50) return '#D97706';
+  return '#DC2626';
+}
+
+// ── ANA RENDER FONKSİYONU ─────────────────────────────────────────────────────
+var FC_VIEW = 'dealer'; // 'dealer' | 'segment' | 'model' | 'eval' | 'upload'
+var FC_SELECTED_DEALERS = []; // admin/SM için seçilen bayiler
+
+function renderFcPanel() {
+  var period = PP_FC_CURRENT;
+  var periods = Object.keys(PP_FC).sort();
+
+  // Kullanıcıya göre bayi listesi
+  var isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'satis_muduru' || currentUser.role === 'direktor');
+  var myDealers;
+  if (isAdmin) {
+    var allDealers = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
+    if (FC_SELECTED_DEALERS.length === 0) FC_SELECTED_DEALERS = allDealers.slice();
+    myDealers = FC_SELECTED_DEALERS;
+  } else {
+    var mudurName = currentUser ? currentUser.mudur : null;
+    myDealers = BAYILER.filter(function(b){return b.mudur===mudurName;}).map(function(b){return b.ad;});
+  }
+
+  // Görünüm sekmeleri — her zaman göster
+  var views = [
+    {id:'dealer', label:'📋 Bayi Bazlı'},
+    {id:'segment', label:'🔢 Segment Bazlı'},
+    {id:'model', label:'🏍️ Model Bazlı'},
+    {id:'eval', label:'⭐ Değerlendirme'}
+  ];
+  views.push({id:'upload', label:'📤 Excel Yükle'});
+
+  var viewTabs = views.map(function(v) {
+    return '<button onclick="FC_VIEW=\''+v.id+'\';renderFcPanel()" style="padding:8px 16px;font-size:12px;font-weight:600;border:none;cursor:pointer;font-family:inherit;border-bottom:2px solid '+(FC_VIEW===v.id?'var(--red)':'transparent')+';background:transparent;color:'+(FC_VIEW===v.id?'var(--red)':'var(--muted)')+'">'+v.label+'</button>';
+  }).join('');
+
+  // Veri yoksa — upload ekranına yönlendir ama FC_VIEW'i değiştirme
+  if (!period || periods.length === 0) {
+    var noDataContent = '<div class="page-title">📈 Retail Forecast</div>' +
+      '<div style="border-bottom:1px solid var(--border);margin-bottom:16px">'+viewTabs+'</div>';
+    noDataContent += fcRenderUploadView();
+    document.getElementById('main-content').innerHTML = noDataContent;
+    return;
+  }
+
+  // Dönem seçici
+  var periodSel = '<select id="fc-period-sel" onchange="PP_FC_CURRENT=this.value;renderFcPanel()" style="background:var(--mid);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px;font-family:inherit">' +
+    periods.map(function(p){ return '<option value="'+p+'"'+(p===period?' selected':'')+'>'+fcPeriodLabel(p)+'</option>'; }).join('') + '</select>';
+
+  // Admin bayi filtresi
+  var dealerFilter = '';
+  if (isAdmin) {
+    var allDs = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
+    dealerFilter = '<div style="margin-bottom:12px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px">' +
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">Bayi Filtresi</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+      '<button onclick="fcSelectAllDealers()" style="font-size:11px;padding:4px 10px;background:var(--blue);color:#fff;border:none;border-radius:4px;cursor:pointer">Tümü</button>' +
+      '<button onclick="fcSelectNoDealers()" style="font-size:11px;padding:4px 10px;background:var(--mid);color:var(--muted);border:1px solid var(--border);border-radius:4px;cursor:pointer">Temizle</button>' +
+      BAYILER.reduce(function(groups, b) {
+        if (!groups[b.mudur]) groups[b.mudur] = [];
+        groups[b.mudur].push(b.ad);
+        return groups;
+      }, {}) && Object.entries(BAYILER.reduce(function(g,b){if(!g[b.mudur])g[b.mudur]=[];g[b.mudur].push(b.ad);return g;},{})).map(function(entry) {
+        var m = entry[0], ds = entry[1];
+        return '<div style="display:flex;gap:4px;align-items:center">' +
+          '<span style="font-size:10px;color:var(--muted);font-weight:600">'+m+':</span>' +
+          ds.map(function(dn) {
+            var sel = FC_SELECTED_DEALERS.indexOf(dn) >= 0;
+            return '<button onclick="fcToggleDealer(\''+dn+'\')" style="font-size:11px;padding:3px 8px;background:'+(sel?'rgba(29,78,216,0.15)':'transparent')+';color:'+(sel?'var(--blue)':'var(--muted)')+';border:1px solid '+(sel?'var(--blue)':'var(--border)')+';border-radius:4px;cursor:pointer">'+dn+'</button>';
+          }).join('') + '</div>';
+      }).join('') +
+      '</div></div>';
+  }
+
+  var content = '<div class="page-title">📈 Retail Forecast</div>' +
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">' +
+    '<div style="font-size:13px;color:var(--muted)">Dönem:</div>' + periodSel +
+    '<div style="font-size:12px;color:var(--muted)">' + myDealers.length + ' bayi</div>' +
+    '</div>' +
+    dealerFilter +
+    '<div style="border-bottom:1px solid var(--border);margin-bottom:16px">'+viewTabs+'</div>';
+
+  if (FC_VIEW === 'dealer') content += fcRenderDealerView(period, myDealers);
+  else if (FC_VIEW === 'segment') content += fcRenderSegmentView(period, myDealers);
+  else if (FC_VIEW === 'model') content += fcRenderModelView(period, myDealers);
+  else if (FC_VIEW === 'eval') content += fcRenderEvalView(period, myDealers, isAdmin);
+  else if (FC_VIEW === 'upload') content += fcRenderUploadView();
+
+  document.getElementById('main-content').innerHTML = content;
+
+  // Grafikleri çiz
+  if (FC_VIEW === 'eval') {
+    setTimeout(function() { fcDrawCharts(period, myDealers); }, 80);
+  }
+}
+
+function fcSelectAllDealers() {
+  FC_SELECTED_DEALERS = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
+  renderFcPanel();
+}
+function fcSelectNoDealers() { FC_SELECTED_DEALERS = []; renderFcPanel(); }
+function fcToggleDealer(dn) {
+  var idx = FC_SELECTED_DEALERS.indexOf(dn);
+  if (idx >= 0) FC_SELECTED_DEALERS.splice(idx, 1);
+  else FC_SELECTED_DEALERS.push(dn);
+  renderFcPanel();
+}
+
+// ── GÖRÜNÜM 1: BAYİ BAZLI ────────────────────────────────────────────────────
+function fcRenderDealerView(period, dealers) {
+  if (!dealers.length) return '<div style="padding:32px;text-align:center;color:var(--muted)">Bayi seçilmedi.</div>';
+  var html = '';
+
+  dealers.forEach(function(dn) {
+    var d = fcGetDealer(period, dn);
+    var tot = fcDealerTotal(period, dn);
+    html += '<div style="margin-bottom:20px">';
+    html += '<div style="font-size:13px;font-weight:700;padding:8px 12px;background:var(--mid);border-radius:8px 8px 0 0;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+    html += '<span>'+dn+'</span>';
+    var activeWk = null;
+    FC_WEEKS.forEach(function(wk){ if((tot[wk+'act']||0)>0) activeWk=wk; });
+    if (activeWk) {
+      var pace = fcPace(tot[activeWk+'act'], activeWk);
+      var eva = fcEva(pace, tot.target);
+      html += '<span style="font-size:12px;color:'+fcEvaColor(eva)+'">'+FC_WEEK_LABELS[activeWk]+' Eva: %'+(eva||0)+'</span>';
+    }
+    html += '</div>';
+    html += '<div style="overflow-x:auto"><table class="data-table" style="margin:0;border-radius:0">';
+    html += '<thead>'+fcTableHeader()+'</thead><tbody>';
+
+    FC_SEGMENTS.forEach(function(seg) {
+      // Segment başlık satırı
+      var segData = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+      var hasData = false;
+      seg.models.forEach(function(m) {
+        if (!d[m]) return;
+        hasData = true;
+        segData.target += d[m].target||0;
+        segData.w1act += d[m].w1act||0;
+        segData.w2act += d[m].w2act||0;
+        segData.w3act += d[m].w3act||0;
+        segData.w4act += d[m].w4act||0;
+      });
+      if (!hasData && segData.target === 0) return;
+      html += '<tr><td colspan="14" style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+seg.color+';background:rgba(0,0,0,0.02);font-weight:700">── '+seg.label+'</td></tr>';
+      seg.models.forEach(function(m) {
+        if (!d[m] && true) {
+          // Modeli göster ama 0 olarak
+          var emptyData = {target:0,w1act:0,w2act:0,w3act:0,w4act:0};
+          html += fcRow(m, emptyData, false, 16);
+        } else {
+          html += fcRow(m, d[m]||{target:0,w1act:0,w2act:0,w3act:0,w4act:0}, false, 16);
+        }
+      });
+      html += fcRow(seg.label+' TTL', segData, true, 8);
+    });
+
+    html += fcRow('GRAND TOTAL', tot, true, 8);
+    html += '</tbody></table></div></div>';
+  });
+
+  // Tüm bayiler toplamı
+  var grandTot = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+  dealers.forEach(function(dn) {
+    var t = fcDealerTotal(period, dn);
+    grandTot.target += t.target; grandTot.w1act += t.w1act; grandTot.w2act += t.w2act;
+    grandTot.w3act += t.w3act; grandTot.w4act += t.w4act;
+  });
+  html += '<div style="background:rgba(220,38,38,0.05);border:2px solid var(--red);border-radius:8px;padding:0;margin-bottom:20px;overflow-x:auto">';
+  html += '<div style="padding:10px 12px;font-size:13px;font-weight:700;color:var(--red)">🏁 Tüm Bayiler Toplam</div>';
+  html += '<table class="data-table" style="margin:0"><thead>'+fcTableHeader()+'</thead><tbody>';
+  html += fcRow('TOPLAM', grandTot, true, 8);
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// ── GÖRÜNÜM 2: SEGMENT BAZLI ─────────────────────────────────────────────────
+function fcRenderSegmentView(period, dealers) {
+  if (!dealers.length) return '<div style="padding:32px;text-align:center;color:var(--muted)">Bayi seçilmedi.</div>';
+  var html = '<div style="overflow-x:auto"><table class="data-table"><thead>'+fcTableHeader()+'</thead><tbody>';
+
+  var grandTot = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+  FC_SEGMENTS.forEach(function(seg) {
+    var segTot = fcSegmentTotal(period, dealers, seg);
+    html += '<tr><td colspan="14" style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+seg.color+';font-weight:700">── '+seg.label+'</td></tr>';
+    seg.models.forEach(function(m) {
+      var mTot = fcModelTotal(period, dealers, m);
+      html += fcRow(m, mTot, false, 16);
+    });
+    html += fcRow(seg.label+' TTL', segTot, true, 8);
+    grandTot.target += segTot.target; grandTot.w1act += segTot.w1act; grandTot.w2act += segTot.w2act;
+    grandTot.w3act += segTot.w3act; grandTot.w4act += segTot.w4act;
+  });
+  html += fcRow('GRAND TOTAL', grandTot, true, 8);
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// ── GÖRÜNÜM 3: MODEL BAZLI ────────────────────────────────────────────────────
+function fcRenderModelView(period, dealers) {
+  if (!dealers.length) return '<div style="padding:32px;text-align:center;color:var(--muted)">Bayi seçilmedi.</div>';
+  var html = '<div style="overflow-x:auto"><table class="data-table"><thead>';
+  // Model bazlı başlık — bayiler sütun
+  html += '<tr style="background:var(--mid)"><th style="min-width:160px">Model</th><th style="text-align:center;color:var(--blue)">Target</th>';
+  FC_WEEKS.forEach(function(wk) {
+    html += '<th colspan="3" style="text-align:center;border-left:1px solid var(--border)">'+FC_WEEK_LABELS[wk]+'</th>';
+  });
+  html += '</tr><tr style="background:var(--mid)"><th></th><th></th>';
+  FC_WEEKS.forEach(function() {
+    html += '<th style="font-size:9px;text-align:center;color:var(--green);border-left:1px solid var(--border)">Act</th>';
+    html += '<th style="font-size:9px;text-align:center;color:var(--muted)">Pace</th>';
+    html += '<th style="font-size:9px;text-align:center;color:var(--yellow)">Eva</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  FC_SEGMENTS.forEach(function(seg) {
+    html += '<tr><td colspan="14" style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:'+seg.color+';font-weight:700">── '+seg.label+'</td></tr>';
+    seg.models.forEach(function(m) {
+      var mTot = fcModelTotal(period, dealers, m);
+      html += fcRow(m, mTot, false, 16);
+    });
+    var sTot = fcSegmentTotal(period, dealers, seg);
+    html += fcRow(seg.label+' TTL', sTot, true, 8);
+  });
+
+  var grandTot = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+  dealers.forEach(function(dn) {
+    var t = fcDealerTotal(period, dn);
+    grandTot.target += t.target; grandTot.w1act += t.w1act; grandTot.w2act += t.w2act;
+    grandTot.w3act += t.w3act; grandTot.w4act += t.w4act;
+  });
+  html += fcRow('GRAND TOTAL', grandTot, true, 8);
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// ── GÖRÜNÜM 4: DEĞERLENDİRME ──────────────────────────────────────────────────
+function fcRenderEvalView(period, dealers, isAdmin) {
+  if (!dealers.length) return '<div style="padding:32px;text-align:center;color:var(--muted)">Bayi seçilmedi.</div>';
+
+  var activeWk = fcActiveWeek(period, dealers) || 'w1';
+  var wkLabel = FC_WEEK_LABELS[activeWk];
+
+  // Tüm toplam
+  var grandTot = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+  dealers.forEach(function(dn) {
+    var t = fcDealerTotal(period, dn);
+    grandTot.target += t.target; grandTot.w1act += t.w1act; grandTot.w2act += t.w2act;
+    grandTot.w3act += t.w3act; grandTot.w4act += t.w4act;
+  });
+  var grandPace = fcPace(grandTot[activeWk+'act'], activeWk);
+  var grandEva = fcEva(grandPace, grandTot.target) || 0;
+
+  // Scorecards
+  var sc = function(label, val, sub, color) {
+    return '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;flex:1;min-width:140px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">'+label+'</div>' +
+      '<div style="font-size:28px;font-weight:700;color:'+(color||'var(--text)')+'">'+val+'</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+sub+'</div></div>';
+  };
+
+  var html = '<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">' +
+    sc('Target', grandTot.target, fcPeriodLabel(period), 'var(--blue)') +
+    sc(wkLabel+' Gerçekleşme', grandTot[activeWk+'act']||0, 'Kümülatif satış', 'var(--text)') +
+    sc(wkLabel+' Pace', grandPace, 'Ay sonu tahmini', 'var(--yellow)') +
+    sc(wkLabel+' Eva', '%'+grandEva, 'Hedefe ulaşım', fcEvaColor(grandEva)) +
+    sc('Bayi Sayısı', dealers.length, 'Aktif bayi', 'var(--muted)') +
+    '</div>';
+
+  // Bayi performans tablosu
+  var dealerRows = dealers.map(function(dn) {
+    var tot = fcDealerTotal(period, dn);
+    var pace = fcPace(tot[activeWk+'act'], activeWk);
+    var eva = fcEva(pace, tot.target) || 0;
+    return { dn: dn, target: tot.target, act: tot[activeWk+'act']||0, pace: pace, eva: eva };
+  }).sort(function(a,b) { return b.eva - a.eva; });
+
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:20px">';
+  html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">Bayi Performans Sıralaması — '+wkLabel+'</div>';
+  html += '<div style="overflow-x:auto"><table class="data-table" style="margin:0"><thead><tr>' +
+    '<th>#</th><th>Bayi</th><th style="text-align:center;color:var(--blue)">Target</th>' +
+    '<th style="text-align:center;color:var(--green)">'+wkLabel+' Act</th>' +
+    '<th style="text-align:center;color:var(--muted)">Pace</th>' +
+    '<th style="text-align:center;color:var(--yellow)">Eva %</th>' +
+    '<th style="min-width:120px">Durum</th>' +
+    '</tr></thead><tbody>';
+
+  dealerRows.forEach(function(r, idx) {
+    var barW = Math.min(r.eva, 120);
+    var barCol = fcScoreColor(r.eva);
+    html += '<tr>' +
+      '<td style="color:var(--muted);font-size:11px">'+(idx+1)+'</td>' +
+      '<td style="font-weight:600">'+r.dn+'</td>' +
+      '<td style="text-align:center;color:var(--blue)">'+(r.target||'—')+'</td>' +
+      '<td style="text-align:center">'+(r.act||'—')+'</td>' +
+      '<td style="text-align:center;color:var(--muted)">'+(r.act>0?r.pace:'—')+'</td>' +
+      '<td style="text-align:center;font-weight:700;color:'+fcEvaColor(r.eva)+'">'+(r.act>0?'%'+r.eva:'—')+'</td>' +
+      '<td><div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden"><div style="height:100%;width:'+barW+'%;background:'+barCol+';border-radius:4px;transition:width 0.4s"></div></div></td>' +
+      '</tr>';
+  });
+  html += '</tbody></table></div></div>';
+
+  // Segment özeti
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:20px">';
+  html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">Segment Performans — '+wkLabel+'</div>';
+  html += '<div style="display:flex;gap:12px;flex-wrap:wrap;padding:16px">';
+  FC_SEGMENTS.forEach(function(seg) {
+    var sTot = fcSegmentTotal(period, dealers, seg);
+    var sPace = fcPace(sTot[activeWk+'act'], activeWk);
+    var sEva = fcEva(sPace, sTot.target) || 0;
+    html += '<div style="flex:1;min-width:150px;background:var(--dark);border:1px solid var(--border);border-radius:8px;padding:14px;border-top:3px solid '+seg.color+'">' +
+      '<div style="font-size:11px;font-weight:700;color:'+seg.color+';margin-bottom:8px">'+seg.label+'</div>' +
+      '<div style="font-size:22px;font-weight:700;color:'+fcEvaColor(sEva)+'">'+(sTot.target>0?'%'+sEva:'—')+'</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+( sTot[activeWk+'act']||0)+' / '+(sPace||0)+' / '+(sTot.target||0)+'</div>' +
+      '<div style="font-size:9px;color:var(--muted);margin-top:2px">Act / Pace / Target</div></div>';
+  });
+  html += '</div></div>';
+
+  // Bölge müdürü bazlı özet (admin/SM için)
+  if (isAdmin) {
+    var mudurMap = BAYILER.reduce(function(g,b){
+      if (!g[b.mudur]) g[b.mudur] = [];
+      if (dealers.indexOf(b.ad) >= 0) g[b.mudur].push(b.ad);
+      return g;
+    }, {});
+
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:20px">';
+    html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">Bölge Müdürü Performansı — '+wkLabel+'</div>';
+    html += '<div style="overflow-x:auto"><table class="data-table" style="margin:0"><thead><tr>' +
+      '<th>#</th><th>Bölge Müdürü</th><th style="text-align:center">Bayi</th>' +
+      '<th style="text-align:center;color:var(--blue)">Target</th>' +
+      '<th style="text-align:center;color:var(--green)">'+wkLabel+' Act</th>' +
+      '<th style="text-align:center;color:var(--muted)">Pace</th>' +
+      '<th style="text-align:center;color:var(--yellow)">Eva %</th>' +
+      '<th style="min-width:120px">Durum</th>' +
+      '</tr></thead><tbody>';
+
+    var mudurRows = Object.entries(mudurMap).filter(function(e){return e[1].length>0;}).map(function(e) {
+      var m = e[0], ds = e[1];
+      var tot = {target:0, w1act:0, w2act:0, w3act:0, w4act:0};
+      ds.forEach(function(dn){ var t=fcDealerTotal(period,dn); tot.target+=t.target;tot.w1act+=t.w1act;tot.w2act+=t.w2act;tot.w3act+=t.w3act;tot.w4act+=t.w4act; });
+      var pace = fcPace(tot[activeWk+'act'], activeWk);
+      var eva = fcEva(pace, tot.target) || 0;
+      return { m:m, ds:ds.length, target:tot.target, act:tot[activeWk+'act']||0, pace:pace, eva:eva };
+    }).sort(function(a,b){return b.eva-a.eva;});
+
+    mudurRows.forEach(function(r, idx) {
+      var barW = Math.min(r.eva, 120);
+      html += '<tr>' +
+        '<td style="color:var(--muted);font-size:11px">'+(idx+1)+'</td>' +
+        '<td style="font-weight:600">'+r.m+'</td>' +
+        '<td style="text-align:center;color:var(--muted)">'+r.ds+'</td>' +
+        '<td style="text-align:center;color:var(--blue)">'+(r.target||'—')+'</td>' +
+        '<td style="text-align:center">'+(r.act||'—')+'</td>' +
+        '<td style="text-align:center;color:var(--muted)">'+(r.act>0?r.pace:'—')+'</td>' +
+        '<td style="text-align:center;font-weight:700;color:'+fcEvaColor(r.eva)+'">'+(r.act>0?'%'+r.eva:'—')+'</td>' +
+        '<td><div style="background:var(--border);border-radius:4px;height:8px"><div style="height:100%;width:'+barW+'%;background:'+fcScoreColor(r.eva)+';border-radius:4px"></div></div></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  // Grafikler için canvas'lar
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">';
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px"><div style="font-size:12px;font-weight:700;margin-bottom:12px">Segment Eva Karşılaştırması</div><canvas id="fcChartSegment" height="200"></canvas></div>';
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px"><div style="font-size:12px;font-weight:700;margin-bottom:12px">Top 10 Bayi Eva</div><canvas id="fcChartDealer" height="200"></canvas></div>';
+  html += '</div>';
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px"><div style="font-size:12px;font-weight:700;margin-bottom:12px">Haftalık Gerçekleşme Trendi (Tüm Bayiler)</div><canvas id="fcChartTrend" height="180"></canvas></div>';
+
+  return html;
+}
+
+// ── GÖRÜNÜM 5: EXCEL YÜKLE ───────────────────────────────────────────────────
+function fcRenderUploadView() {
+  var periods = Object.keys(PP_FC).sort();
+  var periodList = periods.length
+    ? '<div style="margin-top:16px"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Yüklü Dönemler</div>' +
+      periods.map(function(p) {
+        var dealerCount = Object.keys(PP_FC[p]||{}).length;
+        return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--dark);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">' +
+          '<span style="font-weight:700;color:var(--text)">'+fcPeriodLabel(p)+'</span>' +
+          '<span style="font-size:11px;color:var(--muted)">'+p+'</span>' +
+          '<span style="font-size:11px;color:var(--muted)">'+dealerCount+' bayi</span>' +
+          '<button onclick="fcDeletePeriod(\''+p+'\')" style="margin-left:auto;padding:3px 8px;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);color:var(--accent);border-radius:4px;font-size:11px;cursor:pointer">Sil</button>' +
+          '</div>';
+      }).join('')+'</div>'
+    : '<div style="color:var(--muted);font-size:13px;margin-top:12px">Henüz yüklü dönem yok.</div>';
+
+  return '<div style="max-width:680px">' +
+
+    // Yükleme kartı
+    '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:24px;margin-bottom:20px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Forecast Excel Yükle</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:20px">FC-Targets, FC-Actuals-1w/2w/3w/4w ve FC-Weights sekmelerini içeren dosyayı yükleyin.</div>' +
+
+    // Dönem seçimi
+    '<div style="margin-bottom:16px">' +
+    '<label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px">Dönem</label>' +
+    '<div style="display:flex;gap:8px;align-items:center">' +
+    '<select id="fc-upload-year" style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px;font-family:inherit">' +
+    [2025,2026,2027,2028].map(function(y){var now=new Date();return '<option value="'+y+'"'+(y===now.getFullYear()?' selected':'')+'>'+y+'</option>';}).join('') +
+    '</select>' +
+    '<select id="fc-upload-month" style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px;font-family:inherit">' +
+    ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'].map(function(m,i){var now=new Date();return '<option value="'+(i+1)+'"'+(i+1===now.getMonth()+1?' selected':'')+'>'+m+'</option>';}).join('') +
+    '</select>' +
+    '</div></div>' +
+
+    // Dosya seçici
+    '<div id="fc-drop-zone" onclick="document.getElementById(\'fc-file-input\').click()" ' +
+    'ondragover="event.preventDefault();this.style.borderColor=\'var(--blue)\'" ' +
+    'ondragleave="this.style.borderColor=\'var(--border)\'" ' +
+    'ondrop="event.preventDefault();fcHandleUpload(event.dataTransfer.files[0])" ' +
+    'style="border:2px dashed var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:16px">' +
+    '<div style="font-size:32px;margin-bottom:8px">📂</div>' +
+    '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Dosyayı buraya sürükleyin veya tıklayın</div>' +
+    '<div style="font-size:11px;color:var(--muted)">.xlsx veya .xls formatı</div>' +
+    '<input type="file" id="fc-file-input" accept=".xlsx,.xls" style="display:none" onchange="fcHandleUpload(this.files[0])">' +
+    '</div>' +
+
+    // Progress
+    '<div id="fc-progress-wrap" style="display:none;margin-bottom:16px">' +
+    '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
+    '<span id="fc-progress-text" style="font-size:12px;color:var(--muted)">Yükleniyor...</span>' +
+    '<span id="fc-progress-pct" style="font-size:12px;color:var(--muted)">0%</span>' +
+    '</div>' +
+    '<div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">' +
+    '<div id="fc-progress-bar" style="height:100%;width:0%;background:var(--blue);border-radius:4px;transition:width 0.3s"></div>' +
+    '</div></div>' +
+
+    // Sonuç
+    '<div id="fc-upload-result" style="display:none;padding:12px;border-radius:6px;font-size:13px;margin-bottom:16px"></div>' +
+
+    // Şablon indir
+    '<button onclick="fcDownloadTemplate()" style="padding:8px 18px;background:var(--mid);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">⬇ Şablon İndir</button>' +
+    '</div>' +
+
+    // Yüklü dönemler
+    '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px">' +
+    '<div style="font-size:13px;font-weight:700;margin-bottom:4px">Yüklü Dönemler</div>' +
+    periodList +
+    '</div></div>';
+}
+
+function fcSetProgress(pct, text, type) {
+  var wrap = document.getElementById('fc-progress-wrap');
+  var bar = document.getElementById('fc-progress-bar');
+  var txt = document.getElementById('fc-progress-text');
+  var pctEl = document.getElementById('fc-progress-pct');
+  if (!wrap) return;
+  wrap.style.display = 'block';
+  bar.style.width = pct + '%';
+  bar.style.background = type === 'err' ? 'var(--accent)' : type === 'ok' ? 'var(--green)' : 'var(--blue)';
+  if (txt) txt.textContent = text || '';
+  if (pctEl) pctEl.textContent = pct + '%';
+}
+
+function fcShowResult(msg, ok) {
+  var el = document.getElementById('fc-upload-result');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.background = ok ? 'rgba(21,128,61,0.1)' : 'rgba(220,38,38,0.1)';
+  el.style.border = '1px solid ' + (ok ? 'rgba(21,128,61,0.3)' : 'rgba(220,38,38,0.3)');
+  el.style.color = ok ? 'var(--green)' : 'var(--accent)';
+  el.textContent = msg;
+}
+
+async function fcHandleUpload(file) {
+  if (!file) return;
+  if (!window.XLSX) { fcShowResult('SheetJS yüklenmedi, 2 saniye bekleyip tekrar deneyin.', false); return; }
+
+  fcSetProgress(10, 'Dosya okunuyor…');
+
+  var yr = parseInt(document.getElementById('fc-upload-year').value);
+  var mo = parseInt(document.getElementById('fc-upload-month').value);
+  var period = yr + '-' + String(mo).padStart(2,'0');
+
+  var reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      fcSetProgress(20, 'Excel parse ediliyor…');
+      var wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+
+      function parseFcSheetLocal(sn) {
+        if (!sn || !wb.Sheets[sn]) return null;
+        var rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:null});
+        if (!rows || rows.length < 2) return null;
+        var hdr = rows[0] || [];
+        var result = {};
+        for (var ri=1; ri<rows.length; ri++) {
+          var row = rows[ri];
+          if (!row || !row[0]) continue;
+          var dn = String(row[0]).trim();
+          result[dn] = {};
+          for (var ci=1; ci<hdr.length; ci++) {
+            if (!hdr[ci]) continue;
+            var v = row[ci];
+            result[dn][String(hdr[ci]).trim()] = (v && !isNaN(parseFloat(v))) ? parseFloat(v) : 0;
+          }
+        }
+        return result;
+      }
+
+      // Sekme adlarını bul — esnek eşleşme
+      var tgtSn  = wb.SheetNames.find(function(s){ return /fc.?target|^targets$/i.test(s); });
+      var act1Sn = wb.SheetNames.find(function(s){ return /fc.?actuals?.?1w|actuals?.?1w/i.test(s); });
+      var act2Sn = wb.SheetNames.find(function(s){ return /fc.?actuals?.?2w|actuals?.?2w/i.test(s); });
+      var act3Sn = wb.SheetNames.find(function(s){ return /fc.?actuals?.?3w|actuals?.?3w/i.test(s); });
+      var act4Sn = wb.SheetNames.find(function(s){ return /fc.?actuals?.?4w|actuals?.?4w/i.test(s); });
+      var wgtSn  = wb.SheetNames.find(function(s){ return /fc.?weight|^weights$/i.test(s); });
+
+      if (!tgtSn) {
+        fcSetProgress(0, 'Hata', 'err');
+        fcShowResult('FC-Targets sekmesi bulunamadı. Sekmeler: ' + wb.SheetNames.join(', '), false);
+        return;
+      }
+
+      fcSetProgress(30, 'Targets okunuyor…');
+      if (!PP_FC[period]) PP_FC[period] = {};
+
+      var tgData = parseFcSheetLocal(tgtSn);
+      if (tgData) {
+        Object.keys(tgData).forEach(function(dn) {
+          if (!PP_FC[period][dn]) PP_FC[period][dn] = {};
+          Object.keys(tgData[dn]).forEach(function(m) {
+            if (!PP_FC[period][dn][m]) PP_FC[period][dn][m] = {target:0,w1act:0,w2act:0,w3act:0,w4act:0};
+            PP_FC[period][dn][m].target = tgData[dn][m];
+          });
+        });
+      }
+
+      fcSetProgress(50, 'Actuals okunuyor…');
+      var actMap = {w1act: act1Sn, w2act: act2Sn, w3act: act3Sn, w4act: act4Sn};
+      Object.keys(actMap).forEach(function(key) {
+        var acData = parseFcSheetLocal(actMap[key]);
+        if (!acData) return;
+        Object.keys(acData).forEach(function(dn) {
+          if (!PP_FC[period][dn]) PP_FC[period][dn] = {};
+          Object.keys(acData[dn]).forEach(function(m) {
+            if (!PP_FC[period][dn][m]) PP_FC[period][dn][m] = {target:0,w1act:0,w2act:0,w3act:0,w4act:0};
+            PP_FC[period][dn][m][key] = acData[dn][m];
+          });
+        });
+      });
+
+      fcSetProgress(70, 'Weights okunuyor…');
+      if (wgtSn) {
+        var wgRows = XLSX.utils.sheet_to_json(wb.Sheets[wgtSn], {header:1, defval:null});
+        if (wgRows) {
+          wgRows.forEach(function(row) {
+            if (!row || !row[0]) return;
+            var wk = String(row[0]).toLowerCase().trim();
+            var val = parseFloat(row[1]);
+            if (!isNaN(val)) {
+              if (wk==='1w') PP_FC_WEIGHTS.w1 = val;
+              else if (wk==='2w') PP_FC_WEIGHTS.w2 = val;
+              else if (wk==='3w') PP_FC_WEIGHTS.w3 = val;
+              else if (wk==='4w') PP_FC_WEIGHTS.w4 = val;
+            }
+          });
+        }
+      }
+
+      PP_FC_CURRENT = period;
+      fcSetProgress(85, 'Supabase\'e kaydediliyor…');
+
+      // Sadece FC verilerini kaydet
+      try {
+        await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store', {
+          method:'POST',
+          headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
+          body: JSON.stringify({key:'pp_fc', value:JSON.stringify(PP_FC)})
+        });
+        await fetch(SUPABASE_URL+'/rest/v1/pp_kv_store', {
+          method:'POST',
+          headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
+          body: JSON.stringify({key:'pp_fc_weights', value:JSON.stringify(PP_FC_WEIGHTS)})
+        });
+      } catch(e) { console.warn('FC save error', e); }
+
+      var dealerCount = Object.keys(PP_FC[period]||{}).length;
+      var actLoaded = [act1Sn,act2Sn,act3Sn,act4Sn].filter(Boolean).length;
+      fcSetProgress(100, 'Tamamlandı!', 'ok');
+      fcShowResult('✅ ' + fcPeriodLabel(period) + ' dönemi yüklendi. ' + dealerCount + ' bayi, ' + actLoaded + ' hafta gerçekleşme.', true);
+      toast('✅ Forecast verisi kaydedildi!', 'green');
+
+      // Drop zone'u sıfırla
+      setTimeout(function(){ renderFcPanel(); }, 1200);
+
+    } catch(err) {
+      fcSetProgress(0, 'Hata', 'err');
+      fcShowResult('❌ Hata: ' + err.message, false);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function fcDeletePeriod(period) {
+  if (!confirm(fcPeriodLabel(period) + ' dönemini silmek istediğinizden emin misiniz?')) return;
+  delete PP_FC[period];
+  if (PP_FC_CURRENT === period) {
+    var periods = Object.keys(PP_FC).sort();
+    PP_FC_CURRENT = periods.length ? periods[periods.length-1] : null;
+  }
+  // Supabase güncelle
+  fetch(SUPABASE_URL+'/rest/v1/pp_kv_store', {
+    method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
+    body: JSON.stringify({key:'pp_fc', value:JSON.stringify(PP_FC)})
+  }).catch(function(){});
+  toast('Dönem silindi.', 'blue');
+  renderFcPanel();
+}
+
+function fcDownloadTemplate() {
+  if (!window.XLSX) { toast('SheetJS yüklenmedi', 'red'); return; }
+  var wb = XLSX.utils.book_new();
+  var FC_MODELS = ['PCX-125','SH125i','CB125F','Monkey','Forza250','Forza250 OP','CRF250RL','CL250',
+    'ADV350','CB500R','CBR500R','NX500','CB650R','CBR650R','NC750X','NC750X DCT','Forza750','X-ADV','CB750','XL750',
+    'NT1100','NT1100 DCT','Africa Twin L1 MT','Africa Twin L3 DCT','Africa Twin L4 MT','Africa Twin L4 DCT',
+    'CBR1000RRR','Bagger DCT','Goldwing DCT'];
+  var fcDealers = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
+  var yr = parseInt(document.getElementById('fc-upload-year').value);
+  var mo = parseInt(document.getElementById('fc-upload-month').value);
+  var period = yr + '-' + String(mo).padStart(2,'0');
+
+  function makeSheet(wkKey) {
+    var rows = [['Dealers'].concat(FC_MODELS)];
+    fcDealers.forEach(function(dn) {
+      var dfc = (PP_FC[period]||{})[dn];
+      rows.push([dn].concat(FC_MODELS.map(function(m){
+        return dfc && dfc[m] ? (dfc[m][wkKey]||0) : 0;
+      })));
+    });
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:22}].concat(FC_MODELS.map(function(){return {wch:10};}));
+    return ws;
+  }
+
+  XLSX.utils.book_append_sheet(wb, makeSheet('target'), 'FC-Targets');
+  ['w1act','w2act','w3act','w4act'].forEach(function(k,i) {
+    XLSX.utils.book_append_sheet(wb, makeSheet(k), 'FC-Actuals-'+(i+1)+'w');
+  });
+  var wgRows = [['Week','Weight'],['1w',PP_FC_WEIGHTS.w1],['2w',PP_FC_WEIGHTS.w2],['3w',PP_FC_WEIGHTS.w3],['4w',PP_FC_WEIGHTS.w4]];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wgRows), 'FC-Weights');
+  XLSX.writeFile(wb, 'FC_Template_' + period + '.xlsx');
+}
+function fcDrawCharts(period, dealers) {
+  if (typeof Chart === 'undefined') return;
+  var activeWk = fcActiveWeek(period, dealers) || 'w1';
+
+  // 1. Segment Eva
+  var segLabels = [], segEvas = [], segColors = [];
+  FC_SEGMENTS.forEach(function(seg) {
+    var sTot = fcSegmentTotal(period, dealers, seg);
+    var pace = fcPace(sTot[activeWk+'act'], activeWk);
+    var eva = fcEva(pace, sTot.target) || 0;
+    segLabels.push(seg.label);
+    segEvas.push(eva);
+    segColors.push(seg.color);
+  });
+  var ca = document.getElementById('fcChartSegment');
+  if (ca && !ca._ci) {
+    ca._ci = new Chart(ca, {type:'bar', data:{labels:segLabels, datasets:[
+      {label:'Eva %', data:segEvas, backgroundColor:segColors.map(function(c){return c+'88';}), borderColor:segColors, borderWidth:2, borderRadius:4}
+    ]}, options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, annotation:{annotations:[{type:'line',y:100,borderColor:'rgba(0,200,0,0.5)',borderWidth:2,borderDash:[4,4]}]}},
+      scales:{y:{ticks:{callback:function(v){return v+'%';},color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'},suggestedMax:120},
+              x:{ticks:{color:'#7A8FA3'}, grid:{display:false}}}}});
+  }
+
+  // 2. Top 10 Bayi
+  var dealerRows = dealers.map(function(dn) {
+    var tot = fcDealerTotal(period, dn);
+    var pace = fcPace(tot[activeWk+'act'], activeWk);
+    return { dn:dn, eva: fcEva(pace, tot.target)||0, act:tot[activeWk+'act']||0 };
+  }).filter(function(r){return r.act>0;}).sort(function(a,b){return b.eva-a.eva;}).slice(0,10);
+
+  var cb = document.getElementById('fcChartDealer');
+  if (cb && !cb._ci) {
+    cb._ci = new Chart(cb, {type:'bar', data:{
+      labels: dealerRows.map(function(r){return r.dn;}),
+      datasets:[{label:'Eva %', data:dealerRows.map(function(r){return r.eva;}),
+        backgroundColor:dealerRows.map(function(r){return r.eva>=100?'rgba(21,128,61,0.7)':r.eva>=80?'rgba(202,138,4,0.7)':'rgba(220,38,38,0.7)';}),
+        borderRadius:4}]
+    }, options:{indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{ticks:{callback:function(v){return v+'%';},color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'},suggestedMax:120},
+              y:{ticks:{color:'#7A8FA3',font:{size:10}}, grid:{display:false}}}}});
+  }
+
+  // 3. Haftalık trend
+  var trendLabels = [], trendAct = [], trendPace = [], trendTarget = [];
+  var hasTrend = false;
+  FC_WEEKS.forEach(function(wk) {
+    var tot = {target:0};
+    tot[wk+'act'] = 0;
+    dealers.forEach(function(dn) {
+      var t = fcDealerTotal(period, dn);
+      tot.target += t.target;
+      tot[wk+'act'] += t[wk+'act']||0;
+    });
+    var pace = fcPace(tot[wk+'act'], wk);
+    trendLabels.push(FC_WEEK_LABELS[wk]);
+    trendAct.push(tot[wk+'act']||null);
+    trendPace.push(tot[wk+'act']>0?pace:null);
+    trendTarget.push(tot.target||null);
+    if (tot[wk+'act']>0) hasTrend = true;
+  });
+
+  var cc = document.getElementById('fcChartTrend');
+  if (cc && !cc._ci && hasTrend) {
+    cc._ci = new Chart(cc, {type:'line', data:{labels:trendLabels, datasets:[
+      {label:'Target', data:trendTarget, borderColor:'rgba(29,78,216,0.7)', backgroundColor:'transparent', borderDash:[6,3], pointRadius:4, tension:0},
+      {label:'Act', data:trendAct, borderColor:'rgba(21,128,61,0.9)', backgroundColor:'rgba(21,128,61,0.1)', pointRadius:6, tension:0.3, fill:true},
+      {label:'Pace', data:trendPace, borderColor:'rgba(202,138,4,0.9)', backgroundColor:'transparent', pointRadius:6, borderDash:[4,2], tension:0.3}
+    ]}, options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#7A8FA3',font:{size:10}}}},
+      scales:{y:{ticks:{color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'}},
+              x:{ticks:{color:'#7A8FA3'}, grid:{display:false}}}}});
+  }
+}
+
+// ============================================================
+// RETAIL FORECAST PANEL
+// ============================================================
+
+// Model grupları
+var FC_SEGMENTS = [
+  { key: 'commuter', label: 'Commuter', ttlKey: 'Commuter TTL',
+    models: ['PCX-125','SH125i','CB125F','Monkey'] },
+  { key: 'fun250', label: 'FUN 250cc', ttlKey: 'FUN 250cc',
+    models: ['Forza250','Forza250 OP','CRF250RL','CL250'] },
+  { key: 'fun250_500', label: 'Fun 250-500cc', ttlKey: 'Fun 250-500cc',
+    models: ['ADV350','CB500R','CBR500R','NX500'] },
+  { key: 'fun500_750', label: 'Fun 500-750cc', ttlKey: 'Fun 500-750cc',
+    models: ['CB650R','CBR650R','NC750X','NC750X DCT','Forza750','X-ADV','CB750','XL750'] },
+  { key: 'fun750up', label: 'Fun 750cc+', ttlKey: 'Fun 750cc Above',
+    models: ['NT1100','NT1100 DCT','Africa Twin L1 MT','Africa Twin L3 DCT','Africa Twin L4 MT','Africa Twin L4 DCT','CBR1000RRR','Bagger DCT','Goldwing DCT'] }
+];
+var FC_ALL_MODELS = FC_SEGMENTS.reduce(function(a,s){ return a.concat(s.models); }, []);
+var FC_TTL_KEYS   = FC_SEGMENTS.map(function(s){ return s.ttlKey; }).concat(['Grand TTL']);
+
+var FC_currentNav = 'dealer'; // 'dealer' | 'eval'
+var FC_selectedPeriod = null;
+var FC_selectedDealers = null; // null = kendi bölgesi
+
+// ── Yardımcı hesaplama fonksiyonları ────────────────────────
+
+function fcGetDealerData(period, dealer) {
+  return (PP_FC[period] || {})[dealer] || {};
+}
+
+function fcCalcModel(d, wk) {
+  // d = {target, w1act, w2act, w3act, w4act}
+  var weights = PP_FC_WEIGHTS;
+  var wMap = {w1: weights.w1||0.11, w2: weights.w2||0.35, w3: weights.w3||0.74, w4: weights.w4||1};
+  var target = d.target || 0;
+  var act = d[wk+'act'] || 0;
+  var w = wMap[wk] || 0.11;
+  var pace = w > 0 ? Math.round(act / w) : 0;
+  return { target: target, act: act, pace: pace, eva: target > 0 ? pace / target : null };
+}
+
+function fcSumDealer(period, dealer, wk) {
+  // Tüm modellerin toplamı
+  var dd = fcGetDealerData(period, dealer);
+  var target = 0, act = 0;
+  FC_ALL_MODELS.forEach(function(m) {
+    var d = dd[m] || {};
+    target += d.target || 0;
+    act    += d[wk+'act'] || 0;
+  });
+  var w = (PP_FC_WEIGHTS)[wk] || 0.11;
+  var pace = w > 0 ? Math.round(act / w) : 0;
+  return { target: target, act: act, pace: pace, eva: target > 0 ? pace / target : null };
+}
+
+function fcSumSegment(period, dealer, segModels, wk) {
+  var dd = fcGetDealerData(period, dealer);
+  var target = 0, act = 0;
+  segModels.forEach(function(m) {
+    var d = dd[m] || {};
+    target += d.target || 0;
+    act    += d[wk+'act'] || 0;
+  });
+  var w = (PP_FC_WEIGHTS)[wk] || 0.11;
+  var pace = w > 0 ? Math.round(act / w) : 0;
+  return { target: target, act: act, pace: pace, eva: target > 0 ? pace / target : null };
+}
+
+function fcSumDealers(period, dealers, wk) {
+  // Birden fazla bayinin toplamı
+  var target = 0, act = 0;
+  dealers.forEach(function(dn) {
+    var dd = fcGetDealerData(period, dn);
+    FC_ALL_MODELS.forEach(function(m) {
+      var d = dd[m] || {};
+      target += d.target || 0;
+      act    += d[wk+'act'] || 0;
+    });
+  });
+  var w = (PP_FC_WEIGHTS)[wk] || 0.11;
+  var pace = w > 0 ? Math.round(act / w) : 0;
+  return { target: target, act: act, pace: pace, eva: target > 0 ? pace / target : null };
+}
+
+function fcSumDealersSegment(period, dealers, segModels, wk) {
+  var target = 0, act = 0;
+  dealers.forEach(function(dn) {
+    var dd = fcGetDealerData(period, dn);
+    segModels.forEach(function(m) {
+      var d = dd[m] || {};
+      target += d.target || 0;
+      act    += d[wk+'act'] || 0;
+    });
+  });
+  var w = (PP_FC_WEIGHTS)[wk] || 0.11;
+  var pace = w > 0 ? Math.round(act / w) : 0;
+  return { target: target, act: act, pace: pace, eva: target > 0 ? pace / target : null };
+}
+
+// En son hafta (veri olan)
+function fcLatestWeek(period, dealers) {
+  var wks = ['w4','w3','w2','w1'];
+  for (var i=0; i<wks.length; i++) {
+    var wk = wks[i];
+    var hasData = (dealers||[]).some(function(dn) {
+      var dd = fcGetDealerData(period, dn);
+      return FC_ALL_MODELS.some(function(m){ return (dd[m]||{})[wk+'act'] > 0; });
+    });
+    if (hasData) return wk;
+  }
+  return 'w1';
+}
+
+// Eva rengi
+function fcEvaColor(eva) {
+  if (eva === null || eva === undefined) return 'var(--muted)';
+  if (eva >= 1.0) return 'var(--green)';
+  if (eva >= 0.8) return 'var(--yellow)';
+  return 'var(--accent)';
+}
+
+function fcEvaStr(eva) {
+  if (eva === null || eva === undefined) return '—';
+  return Math.round(eva * 100) + '%';
+}
+
+function fcFmt(n) { return (n === 0 || n === null || n === undefined) ? '—' : n; }
+
+// Dönem listesi
+function fcPeriods() {
+  return Object.keys(PP_FC).sort().reverse();
+}
+
+// Kullanıcının görebileceği bayiler
+function fcMyDealers(period) {
+  var all = Object.keys(PP_FC[period] || {});
+  if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'satis_muduru' || currentUser.role === 'direktor') {
+    return all;
+  }
+  // BM kendi bölgesini görür
+  var myBayiler = BAYILER.filter(function(b){ return b.mudur === currentUser.mudur; }).map(function(b){ return b.ad; });
+  return all.filter(function(d){ return myBayiler.indexOf(d) !== -1; });
+}
+
+// ── ANA RENDER ───────────────────────────────────────────────
+
+function renderFcPanel() {
+  var periods = fcPeriods();
+  if (!FC_selectedPeriod || periods.indexOf(FC_selectedPeriod) === -1) {
+    FC_selectedPeriod = periods[0] || null;
+  }
+
+  var isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'satis_muduru' || currentUser.role === 'direktor');
+
+  // Dönem seçici
+  var periodOpts = periods.map(function(p) {
+    var d = new Date(p + '-01');
+    var label = d.toLocaleDateString('tr-TR', {year:'numeric', month:'long'});
+    return '<option value="'+p+'"'+(p===FC_selectedPeriod?' selected':'')+'>'+label+'</option>';
+  }).join('');
+
+  var html = '<div style="padding:0 0 20px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">'
+    + '<div>'
+    + '<div class="page-title" style="margin:0">📈 Retail Forecast</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:2px">Model & Bayi bazlı haftalık satış tahmini</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+    + (periods.length ? '<select class="admin-sel" style="width:160px" onchange="FC_selectedPeriod=this.value;renderFcPanel()">'+periodOpts+'</select>' : '')
+    + '<button class="admin-tab-btn'+(FC_currentNav==='dealer'?' active':'')+'" onclick="FC_currentNav=\'dealer\';renderFcPanel()">📊 Bayi Görünümü</button>'
+    + '<button class="admin-tab-btn'+(FC_currentNav==='eval'?' active':'')+'" onclick="FC_currentNav=\'eval\';renderFcPanel()">🔍 Değerlendirme</button>'
+    + '</div></div>';
+
+  if (!FC_selectedPeriod || periods.length === 0) {
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:40px;text-align:center;color:var(--muted)">'
+      + '<div style="font-size:32px;margin-bottom:12px">📤</div>'
+      + '<div style="font-size:15px;font-weight:600;margin-bottom:8px">Henüz Forecast verisi yüklenmedi</div>'
+      + '<div style="font-size:13px">Performans Paneli → Excel Yükle ile FC-Targets ve FC-Actuals sekmelerini yükleyin.</div>'
+      + '</div>';
+    document.getElementById('main-content').innerHTML = html + '</div>';
+    return;
+  }
+
+  var myDealers = fcMyDealers(FC_selectedPeriod);
+  if (FC_currentNav === 'dealer') {
+    html += fcRenderDealerView(FC_selectedPeriod, myDealers, isAdmin);
+  } else {
+    html += fcRenderEvalView(FC_selectedPeriod, myDealers, isAdmin);
+  }
+
+  html += '</div>';
+  document.getElementById('main-content').innerHTML = html;
+
+  // Chart.js grafiklerini başlat
+  setTimeout(fcInitCharts, 100);
+}
+
+// ── BAYI GÖRÜNÜMÜ ────────────────────────────────────────────
+
+function fcRenderDealerView(period, dealers, isAdmin) {
+  var wks = ['w1','w2','w3','w4'];
+  var wLabels = {w1:'1.Hafta', w2:'2.Hafta', w3:'3.Hafta', w4:'4.Hafta'};
+
+  var html = '';
+
+  // Admin/SM: tüm bayiler + bölge seçici
+  if (isAdmin) {
+    var dsmList = [...new Set(dealers.map(function(dn) {
+      var b = BAYILER.find(function(x){ return x.ad === dn; });
+      return b ? b.mudur : null;
+    }).filter(Boolean))].sort();
+
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">'
+      + '<button class="admin-tab-btn'+(FC_selectedDealers===null?' active':'')+'" onclick="FC_selectedDealers=null;renderFcPanel()">Tüm Bayiler</button>'
+      + dsmList.map(function(dsm) {
+          var dsmDealers = JSON.stringify(dealers.filter(function(dn){
+            var b = BAYILER.find(function(x){ return x.ad===dn; });
+            return b && b.mudur === dsm;
+          }));
+          return '<button class="admin-tab-btn'+(FC_selectedDealers&&FC_selectedDealers[0]&&BAYILER.find(function(x){return x.ad===FC_selectedDealers[0];})&&BAYILER.find(function(x){return x.ad===FC_selectedDealers[0];}).mudur===dsm?' active':'')+'" onclick="FC_selectedDealers='+dsmDealers+';renderFcPanel()">'+dsm+'</button>';
+        }).join('')
+      + '</div>';
+  }
+
+  var activeDealers = (isAdmin && FC_selectedDealers) ? FC_selectedDealers : dealers;
+
+  // Her hafta için kart
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:24px">';
+  wks.forEach(function(wk) {
+    var totals = fcSumDealers(period, activeDealers, wk);
+    var w = (PP_FC_WEIGHTS)[wk] || 0.11;
+    var evaColor = fcEvaColor(totals.eva);
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+      + '<div style="font-size:13px;font-weight:700;color:var(--text)">'+wLabels[wk]+'</div>'
+      + '<div style="font-size:11px;color:var(--muted);background:var(--mid);padding:2px 8px;border-radius:10px">Ağırlık: %'+(w*100).toFixed(0)+'</div>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'
+      + '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Hedef</div><div style="font-size:22px;font-weight:700;color:var(--blue)">'+fcFmt(totals.target)+'</div></div>'
+      + '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Gerçekleşen</div><div style="font-size:22px;font-weight:700;color:var(--text)">'+fcFmt(totals.act)+'</div></div>'
+      + '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Pace</div><div style="font-size:22px;font-weight:700;color:'+evaColor+'">'+fcFmt(totals.pace)+'</div></div>'
+      + '</div>'
+      + '<div style="margin-top:12px;background:var(--mid);border-radius:6px;height:8px;overflow:hidden">'
+      + '<div style="height:100%;background:'+evaColor+';width:'+Math.min((totals.eva||0)*100,100)+'%;transition:width 0.4s"></div>'
+      + '</div>'
+      + '<div style="text-align:right;font-size:12px;font-weight:700;color:'+evaColor+';margin-top:4px">'+fcEvaStr(totals.eva)+'</div>'
+      + '</div>';
+  });
+  html += '</div>';
+
+  // Bayi detay tablosu — son hafta bazlı
+  var latestWk = fcLatestWeek(period, activeDealers);
+  html += '<div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text)">Bayi Detayı — '+{w1:'1.Hafta',w2:'2.Hafta',w3:'3.Hafta',w4:'4.Hafta'}[latestWk]+' (son veri)</div>';
+  html += '<div style="overflow-x:auto"><table class="data-table" style="min-width:900px">';
+  html += '<thead><tr>'
+    + '<th>Bayi</th><th>DSM</th>'
+    + '<th style="text-align:center;color:var(--blue)">Hedef</th>'
+    + '<th style="text-align:center">1W Act</th><th style="text-align:center;color:var(--yellow)">1W Pace</th><th style="text-align:center">1W Eva</th>'
+    + '<th style="text-align:center">2W Act</th><th style="text-align:center;color:var(--yellow)">2W Pace</th><th style="text-align:center">2W Eva</th>'
+    + '<th style="text-align:center">3W Act</th><th style="text-align:center;color:var(--yellow)">3W Pace</th><th style="text-align:center">3W Eva</th>'
+    + '<th style="text-align:center">4W Act</th><th style="text-align:center;color:var(--yellow)">4W Pace</th><th style="text-align:center">4W Eva</th>'
+    + '</tr></thead><tbody>';
+
+  activeDealers.forEach(function(dn) {
+    var b = BAYILER.find(function(x){ return x.ad===dn; });
+    var tgt = fcSumDealer(period, dn, 'w1').target; // target aynı tüm haftalar için
+    html += '<tr>';
+    html += '<td style="font-weight:600">'+dn+'</td>';
+    html += '<td style="font-size:11px;color:var(--muted)">'+(b?b.mudur:'')+'</td>';
+    html += '<td style="text-align:center;font-weight:700;color:var(--blue)">'+fcFmt(tgt)+'</td>';
+    ['w1','w2','w3','w4'].forEach(function(wk) {
+      var r = fcSumDealer(period, dn, wk);
+      var ec = fcEvaColor(r.eva);
+      html += '<td style="text-align:center;color:var(--muted);font-size:12px">'+fcFmt(r.act)+'</td>';
+      html += '<td style="text-align:center;font-weight:600;color:var(--text);font-size:12px">'+fcFmt(r.pace)+'</td>';
+      html += '<td style="text-align:center"><span style="font-size:11px;font-weight:700;color:'+ec+'">'+fcEvaStr(r.eva)+'</span></td>';
+    });
+    html += '</tr>';
+  });
+
+  // Toplam satırı
+  var tgtTotal = fcSumDealers(period, activeDealers, 'w1').target;
+  html += '<tr style="background:var(--mid);font-weight:700">';
+  html += '<td colspan="2">TOPLAM</td>';
+  html += '<td style="text-align:center;color:var(--blue)">'+fcFmt(tgtTotal)+'</td>';
+  ['w1','w2','w3','w4'].forEach(function(wk) {
+    var r = fcSumDealers(period, activeDealers, wk);
+    var ec = fcEvaColor(r.eva);
+    html += '<td style="text-align:center;color:var(--muted)">'+fcFmt(r.act)+'</td>';
+    html += '<td style="text-align:center;color:var(--text)">'+fcFmt(r.pace)+'</td>';
+    html += '<td style="text-align:center"><span style="font-size:11px;font-weight:700;color:'+ec+'">'+fcEvaStr(r.eva)+'</span></td>';
+  });
+  html += '</tr>';
+  html += '</tbody></table></div>';
+
+  // Model detay tablosu
+  html += fcRenderModelTable(period, activeDealers);
+
+  return html;
+}
+
+// ── MODEL DETAY TABLOSU ─────────────────────────────────────
+
+function fcRenderModelTable(period, dealers) {
+  var latestWk = fcLatestWeek(period, dealers);
+  var wLabel = {w1:'1.Hafta',w2:'2.Hafta',w3:'3.Hafta',w4:'4.Hafta'}[latestWk];
+
+  var html = '<div style="margin-top:24px">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text)">Model & Segment Detayı — '+wLabel+'</div>'
+    + '<div style="overflow-x:auto"><table class="data-table" style="min-width:600px">'
+    + '<thead><tr>'
+    + '<th>Segment / Model</th>'
+    + '<th style="text-align:center;color:var(--blue)">Hedef</th>'
+    + '<th style="text-align:center">Gerçekleşen</th>'
+    + '<th style="text-align:center;color:var(--yellow)">Pace</th>'
+    + '<th style="text-align:center">Eva</th>'
+    + '</tr></thead><tbody>';
+
+  FC_SEGMENTS.forEach(function(seg) {
+    // Segment toplam
+    var sr = fcSumDealersSegment(period, dealers, seg.models, latestWk);
+    var sec = fcEvaColor(sr.eva);
+    html += '<tr style="background:rgba(29,78,216,0.06)">'
+      + '<td style="font-weight:700;color:var(--blue)">'+seg.label+'</td>'
+      + '<td style="text-align:center;font-weight:700;color:var(--blue)">'+fcFmt(sr.target)+'</td>'
+      + '<td style="text-align:center;font-weight:700">'+fcFmt(sr.act)+'</td>'
+      + '<td style="text-align:center;font-weight:700;color:var(--yellow)">'+fcFmt(sr.pace)+'</td>'
+      + '<td style="text-align:center"><span style="font-weight:700;color:'+sec+'">'+fcEvaStr(sr.eva)+'</span></td>'
+      + '</tr>';
+
+    // Her model
+    seg.models.forEach(function(m) {
+      var mr = {target:0, act:0, pace:0, eva:null};
+      dealers.forEach(function(dn) {
+        var dd = fcGetDealerData(period, dn);
+        var d = dd[m] || {};
+        mr.target += d.target || 0;
+        mr.act    += d[latestWk+'act'] || 0;
+      });
+      var w = PP_FC_WEIGHTS[latestWk] || 0.11;
+      mr.pace = w > 0 ? Math.round(mr.act / w) : 0;
+      mr.eva  = mr.target > 0 ? mr.pace / mr.target : null;
+      var mec = fcEvaColor(mr.eva);
+      html += '<tr>'
+        + '<td style="padding-left:24px;color:var(--muted);font-size:12px">'+m+'</td>'
+        + '<td style="text-align:center;font-size:12px">'+fcFmt(mr.target)+'</td>'
+        + '<td style="text-align:center;font-size:12px">'+fcFmt(mr.act)+'</td>'
+        + '<td style="text-align:center;font-size:12px;color:var(--yellow)">'+fcFmt(mr.pace)+'</td>'
+        + '<td style="text-align:center"><span style="font-size:11px;font-weight:700;color:'+mec+'">'+fcEvaStr(mr.eva)+'</span></td>'
+        + '</tr>';
+    });
+  });
+
+  // Grand TTL
+  var grand = fcSumDealers(period, dealers, latestWk);
+  var gec = fcEvaColor(grand.eva);
+  html += '<tr style="background:var(--mid);font-weight:700;border-top:2px solid var(--border)">'
+    + '<td>GRAND TOTAL</td>'
+    + '<td style="text-align:center;color:var(--blue)">'+fcFmt(grand.target)+'</td>'
+    + '<td style="text-align:center">'+fcFmt(grand.act)+'</td>'
+    + '<td style="text-align:center;color:var(--yellow)">'+fcFmt(grand.pace)+'</td>'
+    + '<td style="text-align:center"><span style="font-weight:700;color:'+gec+'">'+fcEvaStr(grand.eva)+'</span></td>'
+    + '</tr>';
+
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+// ── DEĞERLENDİRME SAYFASI ────────────────────────────────────
+
+function fcRenderEvalView(period, dealers, isAdmin) {
+  var activeDealers = (isAdmin && FC_selectedDealers) ? FC_selectedDealers : dealers;
+  var latestWk = fcLatestWeek(period, activeDealers);
+  var grand = fcSumDealers(period, activeDealers, latestWk);
+  var wLabel = {w1:'1.Hafta',w2:'2.Hafta',w3:'3.Hafta',w4:'4.Hafta'}[latestWk];
+  var d = new Date(period + '-01');
+  var periodLabel = d.toLocaleDateString('tr-TR', {year:'numeric', month:'long'});
+
+  var html = '<div>';
+
+  // Özet scorecards
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px">';
+
+  // Tüm haftalar scorecard
+  ['w1','w2','w3','w4'].forEach(function(wk) {
+    var r = fcSumDealers(period, activeDealers, wk);
+    var ec = fcEvaColor(r.eva);
+    var wn = {w1:'1.Hafta',w2:'2.Hafta',w3:'3.Hafta',w4:'4.Hafta'}[wk];
+    var w  = PP_FC_WEIGHTS[wk] || 0.11;
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;border-top:3px solid '+ec+'">'
+      + '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">'+wn+' <span style="color:var(--muted)">(Ağ. %'+(w*100).toFixed(0)+')</span></div>'
+      + '<div style="font-size:24px;font-weight:700;color:'+ec+'">'+fcEvaStr(r.eva)+'</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:4px">Pace: <b style="color:var(--text)">'+fcFmt(r.pace)+'</b> / Hdf: <b style="color:var(--blue)">'+fcFmt(r.target)+'</b></div>'
+      + '</div>';
+  });
+  html += '</div>';
+
+  // Grafik satırı
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">';
+
+  // Grafik 1: Haftalık trend
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:12px">Haftalık Pace Trendi</div>'
+    + '<canvas id="fc-chart-trend" height="200"></canvas></div>';
+
+  // Grafik 2: Segment dağılımı
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:12px">Segment Bazlı Pace ('+wLabel+')</div>'
+    + '<canvas id="fc-chart-seg" height="200"></canvas></div>';
+  html += '</div>';
+
+  // Grafik 3: Bayi sıralama
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:24px">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:12px">Bayi Pace Sıralaması ('+wLabel+')</div>'
+    + '<canvas id="fc-chart-dealers" height="250"></canvas></div>';
+
+  // Metin değerlendirme
+  html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:24px">';
+  html += '<div style="font-size:14px;font-weight:700;margin-bottom:16px;color:var(--text)">📋 '+periodLabel+' Değerlendirmesi — '+wLabel+'</div>';
+
+  // Genel durum
+  var grandEva = grand.eva || 0;
+  var statusText, statusColor;
+  if (grandEva >= 1.0) { statusText = '✅ Hedefte — Pace hedefe ulaştı veya geçti.'; statusColor = 'var(--green)'; }
+  else if (grandEva >= 0.85) { statusText = '🟡 Hedefe yakın — Pace hedefin %85 üzerinde.'; statusColor = 'var(--yellow)'; }
+  else if (grandEva >= 0.70) { statusText = '🟠 Dikkat — Pace hedefin %70 üzerinde ama risk var.'; statusColor = '#F97316'; }
+  else { statusText = '🔴 Kritik — Pace hedefin %70\'inin altında.'; statusColor = 'var(--accent)'; }
+
+  html += '<div style="background:var(--mid);border-radius:8px;padding:12px 16px;margin-bottom:16px;border-left:4px solid '+statusColor+'">'
+    + '<div style="font-size:13px;font-weight:600;color:'+statusColor+'">'+statusText+'</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:4px">Genel Pace: '+fcFmt(grand.pace)+' / Hedef: '+fcFmt(grand.target)+' (Eva: '+fcEvaStr(grandEva)+')</div>'
+    + '</div>';
+
+  // En iyi / en kötü bayiler
+  var dealerPerf = activeDealers.map(function(dn) {
+    var r = fcSumDealer(period, dn, latestWk);
+    return { dn: dn, target: r.target, act: r.act, pace: r.pace, eva: r.eva };
+  }).filter(function(x){ return x.target > 0; }).sort(function(a,b){ return (b.eva||0)-(a.eva||0); });
+
+  if (dealerPerf.length > 0) {
+    var top3 = dealerPerf.slice(0, 3);
+    var bot3 = dealerPerf.slice(-3).reverse();
+
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
+
+    html += '<div><div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:8px">🏆 En İyi Performans</div>';
+    top3.forEach(function(x, i) {
+      html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">'
+        + '<span style="font-size:12px">'+(i+1)+'. '+x.dn+'</span>'
+        + '<span style="font-size:12px;font-weight:700;color:var(--green)">'+fcEvaStr(x.eva)+'</span>'
+        + '</div>';
+    });
+    html += '</div>';
+
+    html += '<div><div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">⚠️ Dikkat Edilmesi Gerekenler</div>';
+    bot3.forEach(function(x, i) {
+      html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">'
+        + '<span style="font-size:12px">'+(i+1)+'. '+x.dn+'</span>'
+        + '<span style="font-size:12px;font-weight:700;color:var(--accent)">'+fcEvaStr(x.eva)+'</span>'
+        + '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  // Segment değerlendirme
+  html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text)">Segment Durumu</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">';
+  FC_SEGMENTS.forEach(function(seg) {
+    var sr = fcSumDealersSegment(period, activeDealers, seg.models, latestWk);
+    var ec = fcEvaColor(sr.eva);
+    html += '<div style="background:var(--mid);border-radius:8px;padding:10px;border-left:3px solid '+ec+'">'
+      + '<div style="font-size:11px;color:var(--muted)">'+seg.label+'</div>'
+      + '<div style="font-size:18px;font-weight:700;color:'+ec+'">'+fcEvaStr(sr.eva)+'</div>'
+      + '<div style="font-size:11px;color:var(--muted)">'+fcFmt(sr.pace)+' / '+fcFmt(sr.target)+'</div>'
+      + '</div>';
+  });
+  html += '</div></div>';
+
+  // DSM bazlı özet (sadece admin)
+  if (isAdmin) {
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">';
+    html += '<div style="font-size:14px;font-weight:700;margin-bottom:16px">Bölge Müdürü Bazlı Özet</div>';
+    html += '<div style="overflow-x:auto"><table class="data-table">';
+    html += '<thead><tr><th>DSM</th><th>Bayi Sayısı</th><th style="text-align:center;color:var(--blue)">Hedef</th>';
+    ['w1','w2','w3','w4'].forEach(function(wk) {
+      html += '<th style="text-align:center">'+wk.toUpperCase()+' Act</th><th style="text-align:center">'+wk.toUpperCase()+' Pace</th><th style="text-align:center">Eva</th>';
+    });
+    html += '</tr></thead><tbody>';
+
+    var dsmMap = {};
+    dealers.forEach(function(dn) {
+      var b = BAYILER.find(function(x){ return x.ad===dn; });
+      var dsm = b ? b.mudur : 'Diğer';
+      if (!dsmMap[dsm]) dsmMap[dsm] = [];
+      dsmMap[dsm].push(dn);
+    });
+
+    Object.keys(dsmMap).sort().forEach(function(dsm) {
+      var dd = dsmMap[dsm];
+      var tgt = fcSumDealers(period, dd, 'w1').target;
+      html += '<tr><td style="font-weight:600">'+dsm+'</td><td style="text-align:center">'+dd.length+'</td><td style="text-align:center;color:var(--blue);font-weight:700">'+fcFmt(tgt)+'</td>';
+      ['w1','w2','w3','w4'].forEach(function(wk) {
+        var r = fcSumDealers(period, dd, wk);
+        var ec = fcEvaColor(r.eva);
+        html += '<td style="text-align:center;color:var(--muted);font-size:12px">'+fcFmt(r.act)+'</td>';
+        html += '<td style="text-align:center;font-size:12px">'+fcFmt(r.pace)+'</td>';
+        html += '<td style="text-align:center"><span style="font-size:11px;font-weight:700;color:'+ec+'">'+fcEvaStr(r.eva)+'</span></td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// ── CHART.JS GRAFİKLER ───────────────────────────────────────
+
+function fcInitCharts() {
+  if (typeof Chart === 'undefined') return;
+  var period = FC_selectedPeriod;
+  if (!period) return;
+  var isAdmin = currentUser && (currentUser.role==='admin'||currentUser.role==='satis_muduru'||currentUser.role==='direktor');
+  var dealers = fcMyDealers(period);
+  var activeDealers = (isAdmin && FC_selectedDealers) ? FC_selectedDealers : dealers;
+  var wks = ['w1','w2','w3','w4'];
+  var wLabels = ['1.Hafta','2.Hafta','3.Hafta','4.Hafta'];
+
+  // Chart 1 — Trend
+  var trend = document.getElementById('fc-chart-trend');
+  if (trend && !trend._ci) {
+    var trendData = wks.map(function(wk){ return fcSumDealers(period, activeDealers, wk).pace; });
+    var trendTgt  = fcSumDealers(period, activeDealers, 'w1').target;
+    trend._ci = new Chart(trend, {
+      type: 'line',
+      data: {
+        labels: wLabels,
+        datasets: [
+          { label:'Pace', data: trendData, borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.1)', tension:0.4, pointRadius:5, pointBackgroundColor:'#F59E0B', fill:true },
+          { label:'Hedef', data: [trendTgt,trendTgt,trendTgt,trendTgt], borderColor:'rgba(29,78,216,0.5)', borderDash:[6,3], pointRadius:0 }
+        ]
+      },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#7A8FA3', font:{size:11} } } },
+        scales:{ y:{ ticks:{color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'} }, x:{ ticks:{color:'#7A8FA3'} } } }
+    });
+  }
+
+  // Chart 2 — Segment
+  var seg = document.getElementById('fc-chart-seg');
+  if (seg && !seg._ci) {
+    var latestWk = fcLatestWeek(period, activeDealers);
+    var segLabels = FC_SEGMENTS.map(function(s){ return s.label; });
+    var segPace   = FC_SEGMENTS.map(function(s){ return fcSumDealersSegment(period, activeDealers, s.models, latestWk).pace; });
+    var segTgt    = FC_SEGMENTS.map(function(s){ return fcSumDealersSegment(period, activeDealers, s.models, latestWk).target; });
+    var COLORS = ['rgba(29,78,216,0.7)','rgba(245,158,11,0.7)','rgba(21,128,61,0.7)','rgba(124,58,237,0.7)','rgba(220,38,38,0.7)'];
+    seg._ci = new Chart(seg, {
+      type: 'bar',
+      data: {
+        labels: segLabels,
+        datasets: [
+          { label:'Pace', data: segPace, backgroundColor: COLORS, borderRadius:4 },
+          { label:'Hedef', data: segTgt, backgroundColor:'rgba(255,255,255,0.15)', borderRadius:4, borderWidth:1, borderColor:'rgba(255,255,255,0.3)' }
+        ]
+      },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#7A8FA3', font:{size:11} } } },
+        scales:{ y:{ ticks:{color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'} }, x:{ ticks:{color:'#7A8FA3', font:{size:10}} } } }
+    });
+  }
+
+  // Chart 3 — Dealer ranking
+  var dc = document.getElementById('fc-chart-dealers');
+  if (dc && !dc._ci) {
+    var latestWk2 = fcLatestWeek(period, activeDealers);
+    var dPerf = activeDealers.map(function(dn) {
+      var r = fcSumDealer(period, dn, latestWk2);
+      return { dn: dn, pace: r.pace, target: r.target, eva: r.eva };
+    }).filter(function(x){ return x.target > 0; }).sort(function(a,b){ return (b.eva||0)-(a.eva||0); });
+
+    dc._ci = new Chart(dc, {
+      type: 'bar',
+      data: {
+        labels: dPerf.map(function(x){ return x.dn; }),
+        datasets: [
+          { label:'Pace', data: dPerf.map(function(x){ return x.pace; }),
+            backgroundColor: dPerf.map(function(x){ var e=x.eva||0; return e>=1?'rgba(21,128,61,0.7)':e>=0.8?'rgba(245,158,11,0.7)':'rgba(220,38,38,0.7)'; }),
+            borderRadius:3 },
+          { label:'Hedef', data: dPerf.map(function(x){ return x.target; }),
+            backgroundColor:'rgba(255,255,255,0.1)', borderWidth:1, borderColor:'rgba(255,255,255,0.3)', borderRadius:3 }
+        ]
+      },
+      options: { responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        plugins:{ legend:{ labels:{ color:'#7A8FA3', font:{size:11} } } },
+        scales:{ x:{ ticks:{color:'#7A8FA3'}, grid:{color:'rgba(209,220,232,0.3)'} },
+          y:{ ticks:{color:'#7A8FA3', font:{size:10}}, grid:{drawOnChartArea:false} } } }
+    });
+  }
+}
 
 // ============================================================
 // INIT
