@@ -2548,6 +2548,12 @@ async function doLogin() {
   // Supabase'den config yükle (kullanıcı, bayi listesi)
   try { await adminLoadConfig(); } catch(e) { console.warn('adminLoadConfig:', e); }
 
+  // Supabase'den performans + FC verilerini yükle (arka planda)
+  ppLoadPerfFromDb().then(function() {
+    ppPerfLoaded = true; // Performans paneli tekrar yüklemesin
+    console.log('Perf + FC verileri yüklendi');
+  }).catch(function(e) { console.warn('ppLoadPerfFromDb:', e); });
+
   // Supabase'den raporları yükle
   try { await loadRaporlarFromDB(); } catch(e) { console.warn('loadRaporlar:', e); }
 
@@ -5962,6 +5968,20 @@ function renderFcPanel() {
   var period = PP_FC_CURRENT;
   var periods = Object.keys(PP_FC).sort();
 
+  // FC verisi henüz yüklenmemişse yükle
+  if (periods.length === 0 && !window._fcLoading) {
+    window._fcLoading = true;
+    ppLoadPerfFromDb().then(function() {
+      window._fcLoading = false;
+      ppPerfLoaded = true;
+      renderFcPanel();
+    }).catch(function() { window._fcLoading = false; });
+    document.getElementById('main-content').innerHTML =
+      '<div class="page-title">📈 Retail Forecast</div>' +
+      '<div style="padding:40px;text-align:center;color:var(--muted)"><div style="font-size:24px;margin-bottom:8px">⏳</div>Veriler yükleniyor...</div>';
+    return;
+  }
+
   // Kullanıcıya göre bayi listesi
   var isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'satis_muduru' || currentUser.role === 'direktor');
   var myDealers;
@@ -6033,8 +6053,11 @@ function renderFcPanel() {
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">' +
       '<div style="font-size:13px;color:var(--muted)">Dönem:</div>' + periodSel +
       '<div style="font-size:12px;color:var(--muted)">' + myDealers.length + ' bayi</div>' +
-      '</div>' +
-      dealerFilter;
+      '</div>';
+    // Bayi filtresi sadece admin'e ve sadece ilgili sekmelerde göster
+    if (FC_VIEW !== 'dealer' && FC_VIEW !== 'eval') {
+      content += dealerFilter;
+    }
   } else {
     content +=
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">' +
@@ -6056,7 +6079,7 @@ function renderFcPanel() {
 
   // Grafikleri çiz
   if (FC_VIEW === 'eval') {
-    setTimeout(function() { fcDrawCharts(period, myDealers); }, 80);
+    setTimeout(function() { fcDrawCharts(period, myDealers); }, 200);
   }
   if (FC_VIEW === 'genel') {
     var allDealersForGenelChart = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
@@ -6774,15 +6797,36 @@ function fcDrawCharts(period, dealers) {
   dealers.forEach(function(dn) {
     var tot = fcDealerTotal(period, dn);
     var act = tot[wk+'act'] || 0;
-    var pace = act > 0 ? fcPace(act, wk) : null;
-    var eva = act > 0 ? (fcEva(pace, tot.target) || 0) : null;
+    var pace = act > 0 ? fcPace(act, wk) : 0;
+    var eva = act > 0 ? (fcEva(pace, tot.target) || 0) : 0;
+    // Hedefi de olmayan bayileri atla
+    if (tot.target === 0 && act === 0) return;
     labels.push(dn);
     paceData.push(pace);
     evaData.push(eva);
   });
 
   var ca = document.getElementById('fcChartEval');
-  if (!ca) return;
+  if (!ca) { console.warn('fcChartEval canvas bulunamadı'); return; }
+
+  // Veri yoksa mesaj göster
+  if (labels.length === 0) {
+    ca.style.display = 'none';
+    var msg = ca.parentNode.querySelector('.fc-no-data');
+    if (!msg) {
+      msg = document.createElement('div');
+      msg.className = 'fc-no-data';
+      msg.style.cssText = 'text-align:center;padding:40px;color:var(--muted);font-size:13px';
+      msg.textContent = 'Bu hafta için gerçekleşme verisi yok.';
+      ca.parentNode.appendChild(msg);
+    }
+    return;
+  }
+
+  ca.style.display = '';
+  var existing = ca.parentNode.querySelector('.fc-no-data');
+  if (existing) existing.remove();
+
   if (ca._ci) { ca._ci.destroy(); ca._ci = null; }
 
   ca._ci = new Chart(ca, {
@@ -6808,12 +6852,12 @@ function fcDrawCharts(period, dealers) {
           borderWidth: 2,
           pointRadius: 5,
           pointBackgroundColor: evaData.map(function(v){
-            return v===null?'transparent':v>=100?'rgba(21,128,61,0.9)':v>=80?'rgba(202,138,4,0.9)':'rgba(220,38,38,0.9)';
+            return v>=100?'rgba(21,128,61,0.9)':v>=80?'rgba(202,138,4,0.9)':'rgba(220,38,38,0.9)';
           }),
           tension: 0.3,
           fill: false,
           yAxisID: 'y2',
-          spanGaps: false
+          spanGaps: true
         }
       ]
     },
