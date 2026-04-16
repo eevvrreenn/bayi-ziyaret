@@ -2761,47 +2761,20 @@ async function ppSaveAllToDb() {
 // ppPhotoStore: slotId -> public URL (Supabase Storage'dan)
 const ppPhotoStore = {};
 
-// Sayfa yüklenince Supabase'den fotoğrafları çek
+// Fotoğrafları DB'den yükle
 async function ppLoadPhotosFromDb() {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/pp_photos?select=slot_id,url`, {
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`
-      }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
     });
     if (!res.ok) return;
     const rows = await res.json();
-    rows.forEach(r => {
-      let url = r.url || '';
-      // Eski kayıtlarda /object/pp-photos/ şeklinde kaydedilmiş olabilir
-      // /object/public/pp-photos/ olması gerekiyor
-      url = url.replace('/storage/v1/object/pp-photos/', '/storage/v1/object/public/pp-photos/');
-      ppPhotoStore[r.slot_id] = url;
-    });
-  } catch(e) { /* Supabase erişilemez — fotoğraflar atlanır */ }
+    rows.forEach(r => { if (r.slot_id && r.url) ppPhotoStore[r.slot_id] = r.url; });
+  } catch(e) { /* erişilemez */ }
 }
 
-// Fotoğrafı Storage'a yükle, URL'yi pp_photos tablosuna kaydet
-async function ppUploadPhotoToStorage(slotId, blob) {
-  const ext = 'jpg';
-  // Supabase Storage path'e ham isim gönder — encode etme
-  const path = slotId + '.' + ext;
-  // 1. Storage'a yükle
-  const upRes = await fetch(`${SUPABASE_URL}/storage/v1/object/pp-photos/${path}`, {
-    method: 'POST',
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'image/jpeg',
-      'x-upsert': 'true'
-    },
-    body: blob
-  });
-  if (!upRes.ok) { const t = await upRes.text(); throw new Error('Upload failed: ' + t); }
-  // 2. Public URL — Supabase otomatik encode eder
-  const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/pp-photos/${path}`;
-  // 3. pp_photos tablosuna kaydet (upsert)
+// Fotoğrafı base64 olarak pp_photos tablosuna kaydet
+async function ppSavePhotoToDb(slotId, base64) {
   await fetch(`${SUPABASE_URL}/rest/v1/pp_photos`, {
     method: 'POST',
     headers: {
@@ -2810,17 +2783,12 @@ async function ppUploadPhotoToStorage(slotId, blob) {
       'Content-Type': 'application/json',
       'Prefer': 'resolution=merge-duplicates'
     },
-    body: JSON.stringify({ slot_id: slotId, url: publicUrl })
+    body: JSON.stringify({ slot_id: slotId, url: base64 })
   });
-  return publicUrl;
 }
 
-async function ppDeletePhotoFromStorage(slotId) {
-  const path = slotId + '.jpg';
-  await fetch(`${SUPABASE_URL}/storage/v1/object/pp-photos/${path}`, {
-    method: 'DELETE',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-  });
+// Fotoğrafı DB'den sil
+async function ppDeletePhotoFromDb(slotId) {
   await fetch(`${SUPABASE_URL}/rest/v1/pp_photos?slot_id=eq.${encodeURIComponent(slotId)}`, {
     method: 'DELETE',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
@@ -2835,12 +2803,12 @@ function ppTriggerPhoto(slotId) {
 function ppHandlePhoto(slotId, input) {
   const file = input.files[0];
   if (!file) return;
-  // Canvas ile sıkıştır, sonra Storage'a yükle
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = new Image();
-    img.onload = async () => {
-      const maxW = 900, maxH = 900;
+    img.onload = () => {
+      // Boyutu küçült
+      const maxW = 800, maxH = 800;
       let w = img.width, h = img.height;
       if (w > maxW || h > maxH) {
         const ratio = Math.min(maxW/w, maxH/h);
@@ -2849,22 +2817,14 @@ function ppHandlePhoto(slotId, input) {
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      // Önce local göster
-      ppPhotoStore[slotId] = canvas.toDataURL('image/jpeg', 0.8);
+      const base64 = canvas.toDataURL('image/jpeg', 0.75);
+      // Hemen göster
+      ppPhotoStore[slotId] = base64;
       ppRenderTab();
-      // Arka planda yükle
-      try {
-        canvas.toBlob(async (blob) => {
-          try {
-            const url = await ppUploadPhotoToStorage(slotId, blob);
-            ppPhotoStore[slotId] = url + '?t=' + Date.now();
-            ppRenderTab();
-            toast('📷 Fotoğraf kaydedildi', 'blue');
-          } catch(err) {
-            toast('⚠️ Fotoğraf yüklenemedi: ' + err.message, 'red');
-          }
-        }, 'image/jpeg', 0.8);
-      } catch(err) { toast('⚠️ ' + err.message, 'red'); }
+      // DB'ye kaydet
+      ppSavePhotoToDb(slotId, base64)
+        .then(() => toast('📷 Fotoğraf kaydedildi', 'blue'))
+        .catch(err => toast('⚠️ Kaydedilemedi: ' + err.message, 'red'));
     };
     img.src = e.target.result;
   };
@@ -2876,9 +2836,9 @@ async function ppRemovePhoto(event, slotId) {
   delete ppPhotoStore[slotId];
   ppRenderTab();
   try {
-    await ppDeletePhotoFromStorage(slotId);
+    await ppDeletePhotoFromDb(slotId);
     toast('🗑 Fotoğraf silindi', 'blue');
-  } catch(e) { console.warn('Delete failed:', e); }
+  } catch(e) { /* sessiz */ }
 }
 
 function ppGetAvailableYears() {
