@@ -2773,16 +2773,10 @@ async function ppLoadPhotosFromDb() {
     if (!res.ok) return;
     const rows = await res.json();
     rows.forEach(r => {
-      // Eski kayıtlarda URL encode edilmemiş olabilir — normalize et
-      let url = r.url;
-      try {
-        // Zaten encode edilmişse decode et, sonra tekrar encode et
-        const decoded = decodeURIComponent(url);
-        // pp-photos/ sonrasını encode et, / karakterini koru
-        const base = url.split('/pp-photos/')[0] + '/pp-photos/';
-        const filePart = decoded.split('/pp-photos/')[1];
-        if (filePart) url = base + encodeURIComponent(filePart).replace(/%2F/g, '/');
-      } catch(e) { /* orijinal URL kullan */ }
+      let url = r.url || '';
+      // Eski kayıtlarda /object/pp-photos/ şeklinde kaydedilmiş olabilir
+      // /object/public/pp-photos/ olması gerekiyor
+      url = url.replace('/storage/v1/object/pp-photos/', '/storage/v1/object/public/pp-photos/');
       ppPhotoStore[r.slot_id] = url;
     });
   } catch(e) { /* Supabase erişilemez — fotoğraflar atlanır */ }
@@ -2791,7 +2785,8 @@ async function ppLoadPhotosFromDb() {
 // Fotoğrafı Storage'a yükle, URL'yi pp_photos tablosuna kaydet
 async function ppUploadPhotoToStorage(slotId, blob) {
   const ext = 'jpg';
-  const path = encodeURIComponent(slotId) + '.' + ext;
+  // Supabase Storage path'e ham isim gönder — encode etme
+  const path = slotId + '.' + ext;
   // 1. Storage'a yükle
   const upRes = await fetch(`${SUPABASE_URL}/storage/v1/object/pp-photos/${path}`, {
     method: 'POST',
@@ -2804,7 +2799,7 @@ async function ppUploadPhotoToStorage(slotId, blob) {
     body: blob
   });
   if (!upRes.ok) { const t = await upRes.text(); throw new Error('Upload failed: ' + t); }
-  // 2. Public URL — encode edilmiş path ile
+  // 2. Public URL — Supabase otomatik encode eder
   const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/pp-photos/${path}`;
   // 3. pp_photos tablosuna kaydet (upsert)
   await fetch(`${SUPABASE_URL}/rest/v1/pp_photos`, {
@@ -2821,7 +2816,7 @@ async function ppUploadPhotoToStorage(slotId, blob) {
 }
 
 async function ppDeletePhotoFromStorage(slotId) {
-  const path = encodeURIComponent(slotId) + '.jpg';
+  const path = slotId + '.jpg';
   await fetch(`${SUPABASE_URL}/storage/v1/object/pp-photos/${path}`, {
     method: 'DELETE',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
@@ -3181,7 +3176,7 @@ function ppRenderInfoTab(d) {
     const stored = ppPhotoStore[slotId];
     return `<div class="pp-photo-slot" id="ppslot-${slotId}" style="width:${w}px;height:${h}px" onclick="ppTriggerPhoto('${slotId}')">
       ${stored
-        ? `<img src="${stored}" alt="${label}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">`
+        ? `<img src="${stored}" alt="${label}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" onerror="this.parentElement.innerHTML='<div class=\\'pp-photo-placeholder\\'><div class=\\'pp-photo-icon\\'>⚠️</div><div class=\\'pp-photo-lbl\\'>Yüklenemedi</div></div>'">`
         : `<div class="pp-photo-placeholder"><div class="pp-photo-icon">📷</div><div class="pp-photo-lbl">${label}</div></div>`
       }
       <input type="file" id="ppfile-${slotId}" accept="image/*" style="display:none" onchange="ppHandlePhoto('${slotId}',this)">
