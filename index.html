@@ -6062,7 +6062,7 @@ function fcRenderGenelView(period, dealers) {
     seg.models.forEach(function(m) { opts.push(m); });
   });
 
-  var selHtml = '<select id="fc-genel-sel" onchange="FC_GENEL_SEL=this.value; fcDrawGenelChart(\''+period+'\','+JSON.stringify(dealers)+'); " '
+  var selHtml = '<select id="fc-genel-sel" onchange="FC_GENEL_SEL=this.value; fcDrawGenelChart(\''+period+'\', null);" '
     + 'style="background:var(--mid);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-size:13px;font-family:inherit;min-width:200px">';
   opts.forEach(function(o) {
     var lbl = o.startsWith('__seg__')
@@ -6169,7 +6169,7 @@ function fcRenderGenelView(period, dealers) {
     + selHtml
     + '<div style="font-size:11px;color:var(--muted)">Hedef · Actual · Pace</div>'
     + '</div>'
-    + '<canvas id="fcGenelChart" height="220"></canvas>'
+    + '<canvas id="fcGenelChart" height="120"></canvas>'
     + '</div>'
 
     // Tablo 1
@@ -6203,6 +6203,13 @@ function fcRenderGenelView(period, dealers) {
 
 function fcDrawGenelChart(period, dealers) {
   if (typeof Chart === 'undefined') return;
+  // period null ise mevcut dönemi kullan
+  if (!period) period = PP_FC_CURRENT;
+  if (!period) return;
+  // dealers null ise tüm bayileri kullan
+  if (!dealers) {
+    dealers = PP_DATA.dealers.filter(function(d){return d.name!=='HTR';}).map(function(d){return d.name;});
+  }
   var sel = document.getElementById('fc-genel-sel');
   var selVal = sel ? sel.value : (FC_GENEL_SEL || 'Grand TTL');
   FC_GENEL_SEL = selVal;
@@ -6295,7 +6302,11 @@ function fcDrawGenelChart(period, dealers) {
         tooltip: { mode: 'index', intersect: false }
       },
       scales: {
-        y: { ticks: { color: '#7A8FA3' }, grid: { color: 'rgba(209,220,232,0.3)' }, beginAtZero: true },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#7A8FA3', maxTicksLimit: 6 },
+          grid: { color: 'rgba(209,220,232,0.3)' }
+        },
         x: { ticks: { color: '#7A8FA3' }, grid: { display: false } }
       }
     }
