@@ -6046,6 +6046,29 @@ function adminRenderUsers(c) {
   adminLoadPwdRequests();
 }
 
+function adminUserRow(u, i) {
+  const pw = (u.password||'').replace(/"/g,'&quot;');
+  const un = (u.username||'').replace(/"/g,'&quot;');
+  const ad = (u.ad||'').replace(/"/g,'&quot;');
+  const roles = [
+    ['mudur','Bölge Müdürü'],
+    ['satis_muduru','Satış Müdürü'],
+    ['direktor','Direktör'],
+    ['admin','Admin']
+  ];
+  const roleOpts = roles.map(([v,l]) => `<option value="${v}"${u.role===v?' selected':''}>${l}</option>`).join('');
+  return `<tr id="admin-urow-${i}">
+    <td><input class="admin-inp" style="width:130px" value="${un}" oninput="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
+    <td><input class="admin-inp" style="width:150px" value="${ad}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
+    <td><div style="display:flex;gap:6px;align-items:center">
+      <input class="admin-inp" style="width:110px" type="password" id="pwd-inp-${i}" value="${pw}" oninput="adminUserField(${i},'password',this.value)" placeholder="Şifre">
+      <button class="admin-del-btn" style="padding:5px 8px;font-size:11px;background:rgba(29,78,216,0.08);border-color:rgba(29,78,216,0.2);color:var(--blue)" onclick="adminShowPwd(${i})" title="Göster">👁</button>
+    </div></td>
+    <td><select class="admin-sel" style="width:140px" onchange="adminUserField(${i},'role',this.value)">${roleOpts}</select></td>
+    <td><button class="admin-del-btn" onclick="adminDelUser(${i})">🗑 Sil</button></td>
+  </tr>`;
+}
+
 async function adminLoadPwdRequests() {
   const el = document.getElementById('pwd-reset-list');
   if (!el) return;
@@ -6395,10 +6418,14 @@ function adminRenderMudurOzet(c) {
   var mudurler = Array.from(mudurlerSet).sort();
 
   var bmRows = mudurler.map(function(m) {
+    var mNorm = m.trim().toLowerCase();
     var u = users.find(function(x){
-      return (x.role==='mudur') && (x.mudur===m || (!(x.mudur||'').trim() && x.ad===m));
+      if (x.role !== 'mudur') return false;
+      var mudurNorm = (x.mudur||'').trim().toLowerCase();
+      var adNorm    = (x.ad||'').trim().toLowerCase();
+      return mudurNorm === mNorm || ((!mudurNorm) && adNorm === mNorm);
     });
-    var bs = bayiler.filter(function(b){ return b.mudur===m && b.ad!=='(Bayi ekleyin)'; });
+    var bs = bayiler.filter(function(b){ return (b.mudur||'').trim().toLowerCase() === mNorm && b.ad!=='(Bayi ekleyin)'; });
     var bayiStr = bs.length
       ? bs.map(function(b){ return b.ad+' ('+b.sehir+')'; }).join(', ')
       : '<span style="color:var(--yellow)">Henüz bayi atanmadı</span>';
