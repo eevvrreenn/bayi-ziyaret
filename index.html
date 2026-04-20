@@ -5354,13 +5354,39 @@ function etkBuildTbl(list, cu) {
       h += '<td style="display:flex;gap:4px">'
         + '<button class="etk-btn etk-btn-primary etk-btn-sm" onclick="event.stopPropagation();etkSubmitDraft(\''+aid+'\')">📤 Onaya Gönder</button>'
         + '<button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="event.stopPropagation();etkGoDetail(\''+aid+'\')">Detay</button>'
+        + '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="event.stopPropagation();etkDeleteAct(\''+aid+'\')">🗑</button>'
         + '</td>';
     } else {
-      h += '<td><button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="event.stopPropagation();etkGoDetail(\''+aid+'\')">Detay</button></td>';
+      // Silme yetkisi: BM kendi draft/revision, SM/Dir/Admin onaya gidenler
+      var canDel = false;
+      if (cu.role==='mudur' && a.did===cu.id && ['draft','revision_requested'].includes(a.status)) canDel=true;
+      if (['satis_muduru','direktor','admin'].includes(cu.role) && ['pending_sm','pending_dir','revision_requested'].includes(a.status)) canDel=true;
+      if (cu.role==='admin') canDel=true;
+      h += '<td style="display:flex;gap:4px">'
+        + '<button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="event.stopPropagation();etkGoDetail(\''+aid+'\')">Detay</button>'
+        + (canDel ? '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="event.stopPropagation();etkDeleteAct(\''+aid+'\')">🗑</button>' : '')
+        + '</td>';
     }
     h += '</tr>';
   });
   return h + '</tbody></table>';
+}
+
+async function etkDeleteAct(id) {
+  if (!confirm('Bu etkinlik kalıcı olarak silinecek. Emin misiniz?')) return;
+  try {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?id=eq.' + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Prefer': 'return=minimal' }
+    });
+    if (res.ok) {
+      ETK_acts = ETK_acts.filter(function(a){ return a.id !== id; });
+      toast('🗑 Etkinlik silindi.', 'blue');
+      etkNav('allActs');
+    } else {
+      toast('⚠️ Silinemedi.', 'red');
+    }
+  } catch(e) { toast('⚠️ Bağlantı hatası.', 'red'); }
 }
 
 function etkGoDetail(id) {
@@ -5488,6 +5514,16 @@ function etkRenderDetail(c, cu, act) {
 
   var ab = '';
   var bigAmt = act.amt > ETK_LIMIT;
+
+  // Silme butonu — BM kendi draft/revision taleplerini silebilir; SM/Direktör/Admin onaya gidenleri silebilir
+  var canDelete = false;
+  if (cu.role === 'mudur' && act.did === cu.id && ['draft','revision_requested'].includes(act.status)) canDelete = true;
+  if (['satis_muduru','direktor','admin'].includes(cu.role) && ['pending_sm','pending_dir','revision_requested'].includes(act.status)) canDelete = true;
+  if (cu.role === 'admin') canDelete = true; // admin her zaman silebilir
+  var deleteBtn = canDelete
+    ? '<button class="etk-btn etk-btn-danger etk-btn-sm" onclick="etkDeleteAct(\''+act.id+'\')" style="margin-left:auto">🗑 Sil</button>'
+    : '';
+
   // BM: taslak durumundaki kendi talebini onaya gönderebilir
   if (cu.role==='mudur' && act.status==='draft' && act.did===cu.id) {
     ab = '<button class="etk-btn etk-btn-primary etk-btn-sm" onclick="etkSubmitDraft(\''+act.id+'\')">📤 Onaya Gönder</button>';
@@ -5564,7 +5600,7 @@ function etkRenderDetail(c, cu, act) {
   c.innerHTML = '<div class="etk-tb">'
     +'<button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="etkNav(\'allActs\')">← Geri</button>'
     +'<span class="etk-badge '+ETK_SB[act.status]+'" style="font-size:12px;padding:4px 12px">'+ETK_SL[act.status]+'</span>'
-    +'<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">'+ab+'</span></div>'
+    +'<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">'+ab+deleteBtn+'</span></div>'
     +'<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">'
     +'<div><div class="etk-card" style="margin-bottom:14px"><div class="etk-ch"><div class="etk-ct">'+act.title+'</div></div><div class="etk-cbp">'
     +progH
