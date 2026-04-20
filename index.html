@@ -2535,7 +2535,7 @@ let USERS = [
   { username: 'b.anafarta',  password: 'Honda2026!', ad: 'Barış Anafarta',  mudur: 'Barış Anafarta',  role: 'mudur' },
   { username: 'b.inselel',   password: 'Honda2026!', ad: 'Barış İnselel',   mudur: 'Barış İnselel',   role: 'mudur' },
   { username: 'd.bagcagiz',  password: 'Honda2026!', ad: 'Doğan Bağcağız',  mudur: 'Doğan Bağcağız',  role: 'mudur' },
-  { username: 's.hosrik',    password: 'Honda2026!', ad: 'Sinan Hoşrik',    mudur: 'Sinan Hoşrik',    role: 'mudur' },
+  { username: 's.hosrik',    password: 'Honda2026!', ad: 'Sinan Hoşrik',    mudur: 'Sinan Hoşrik',    role: 'satis_muduru' },
   { username: 't.kalburcu',  password: 'Honda2026!', ad: 'Tolga Kalburcu',  mudur: 'Tolga Kalburcu',  role: 'mudur' },
   { username: 'y.yavuz',     password: 'Honda2026!', ad: 'Yiğit Yavuz',     mudur: 'Yiğit Yavuz',     role: 'mudur' },
   { username: 'admin',       password: 'Admin2026!', ad: 'Yönetici',         mudur: null,              role: 'admin' },
@@ -2546,7 +2546,15 @@ let currentUser = null;
 async function doLogin() {
   const u = document.getElementById('login-user').value.trim().toLowerCase();
   const p = document.getElementById('login-pass').value;
-  const user = USERS.find(x => x.username === u && x.password === p);
+
+  // Önce Supabase'den kullanıcı listesini yükle (henüz yüklenmediyse)
+  if (!ADMIN_USERS_RT) {
+    try { await adminLoadConfig(); } catch(e) { console.warn('adminLoadConfig:', e); }
+  }
+
+  // Supabase'den gelen listeyi önce dene, yoksa sabit listeye dön
+  const activeUsers = ADMIN_USERS_RT || USERS;
+  const user = activeUsers.find(x => x.username === u && x.password === p);
   if (!user) {
     document.getElementById('login-error').classList.add('show');
     document.getElementById('login-pass').value = '';
@@ -2567,9 +2575,6 @@ async function doLogin() {
   const initials = user.ad.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
   document.getElementById('user-display').textContent = user.ad + (user.role==='admin' ? ' (Admin)' : '');
-
-  // Supabase'den config yükle (kullanıcı, bayi listesi)
-  try { await adminLoadConfig(); } catch(e) { console.warn('adminLoadConfig:', e); }
 
   // Supabase'den performans + FC verilerini yükle (arka planda)
   ppLoadPerfFromDb().then(function() {
@@ -5013,7 +5018,14 @@ function etkBuildTbl(list, cu) {
     h += '<td style="color:var(--muted);font-size:12px">'+a.date+'</td>';
     h += '<td><span style="font-family:\'IBM Plex Mono\',monospace;font-weight:700">'+etkFcf(a.amt)+'</span></td>';
     h += '<td><span class="etk-badge '+ETK_SB[a.status]+'">'+ETK_SL[a.status]+'</span></td>';
-    h += '<td><button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="event.stopPropagation();etkGoDetail(\''+aid+'\')">Detay</button></td>';
+    if (a.status==='draft' && cu.role==='mudur' && a.did===cu.id) {
+      h += '<td style="display:flex;gap:4px">'
+        + '<button class="etk-btn etk-btn-primary etk-btn-sm" onclick="event.stopPropagation();etkSubmitDraft(\''+aid+'\')">📤 Onaya Gönder</button>'
+        + '<button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="event.stopPropagation();etkGoDetail(\''+aid+'\')">Detay</button>'
+        + '</td>';
+    } else {
+      h += '<td><button class="etk-btn etk-btn-secondary etk-btn-sm" onclick="event.stopPropagation();etkGoDetail(\''+aid+'\')">Detay</button></td>';
+    }
     h += '</tr>';
   });
   return h + '</tbody></table>';
@@ -5144,6 +5156,10 @@ function etkRenderDetail(c, cu, act) {
 
   var ab = '';
   var bigAmt = act.amt > ETK_LIMIT;
+  // BM: taslak durumundaki kendi talebini onaya gönderebilir
+  if (cu.role==='mudur' && act.status==='draft' && act.did===cu.id) {
+    ab = '<button class="etk-btn etk-btn-primary etk-btn-sm" onclick="etkSubmitDraft(\''+act.id+'\')">📤 Onaya Gönder</button>';
+  }
   // BM: kendi talebinde revizyon yapabilir
   if (cu.role==='mudur' && act.status==='revision_requested' && act.did===cu.id) {
     ab = '<button class="etk-btn etk-btn-warn etk-btn-sm" onclick="etkOpenRevMod(\''+act.id+'\')">✏️ Revizyon Yap</button>';
@@ -5282,6 +5298,21 @@ async function etkAppAct(id, action) {
 }
 
 // ── REVİZYON ─────────────────────────────────────────────────
+async function etkSubmitDraft(id) {
+  if (!confirm('Taslak etkinliği onaya göndermek istiyor musunuz?')) return;
+  var act = ETK_acts.find(function(a){ return a.id===id; });
+  if (!act) return;
+  act.status = 'pending_sm';
+  var ok = await etkSaveToDb(act);
+  if (ok) {
+    toast('✅ Etkinlik onaya gönderildi', 'green');
+    etkLoadFromDb().then(function(){ renderEtkinlikPanel(); });
+  } else {
+    act.status = 'draft'; // geri al
+    toast('⚠️ Gönderilemedi', 'red');
+  }
+}
+
 function etkRevReq(id) {
   etkOpenMod('Revizyon Talebi',
     '<p style="color:var(--muted);margin-bottom:12px;font-size:13px">Bayiden hangi değişiklikleri istiyorsunuz?</p>'
