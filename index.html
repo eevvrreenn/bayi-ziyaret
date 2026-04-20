@@ -1188,6 +1188,7 @@ function updateNavActive(page) {
 function showPage(page) {
   if (currentPage === 'yeni-rapor' && page !== 'yeni-rapor') { saveDraft(); stopDraftTimer(); }
   currentPage = page;
+  sessionStorage.setItem('bz_page', page); // F5 için kaydet
   updateNavActive(page);
   if (page==='anasayfa') renderAnaSayfa();
   else if (page==='yeni-rapor') renderYeniRapor();
@@ -2834,7 +2835,9 @@ async function doLogin() {
   // Sidebar: admin tüm müdürleri görür
   renderSidebar(user.role === 'admin');
   // Taslak kontrolü
-  if (!checkAndOfferDraft()) renderAnaSayfa();
+  // F5 sonrası sayfayı restore et, yoksa ana sayfa
+  const savedPage = sessionStorage.getItem('bz_page') || 'anasayfa';
+  if (!checkAndOfferDraft()) showPage(savedPage);
   // checkAndOfferDraft true döndürdüğünde renderYeniRapor zaten çağrılmış olur
 
   // Session'a kaydet — F5 sonrası otomatik giriş için
@@ -7835,7 +7838,15 @@ function weatherIcon(code) {
 
 var TR_DAYS = ['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
 
-function renderAnaSayfa() {
+async function renderAnaSayfa() {
+  // Kısayollar henüz yüklenmemişse yükle
+  if (!KISAYOLLAR.length) {
+    await kisayollarLoad().catch(function(){});
+  }
+  // Etkinlikler yüklenmemişse yükle
+  if (!ETK_acts.length) {
+    await etkLoadFromDb().catch(function(){});
+  }
   currentPage = 'anasayfa';
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.bottom-nav-btn').forEach(b => b.classList.remove('active'));
