@@ -846,6 +846,7 @@ async function loadRaporlarFromDB() {
       personel: r.personel, aksiyonlar: r.aksiyonlar,
       yorumlar: r.yorumlar, bayiGorusu: r.bayi_gorusu,
       fotograflar: r.fotograflar,
+      status: r.status || 'submitted',
     }));
   } catch(e) { toast('⚠️ Veri yüklenemedi: ' + e.message, 'red'); raporlar = []; }
   finally { hideLoading(); }
@@ -865,6 +866,7 @@ async function saveRaporToDb(rapor) {
     personel: rapor.personel, aksiyonlar: rapor.aksiyonlar,
     yorumlar: rapor.yorumlar, bayi_gorusu: rapor.bayiGorusu,
     fotograflar: fotograflarKucuk,
+    status: rapor.status || 'submitted',
   };
   if (rapor._dbId) {
     await sbFetch(`raporlar?id=eq.${rapor._dbId}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(payload) });
@@ -878,6 +880,97 @@ async function saveRaporToDb(rapor) {
 async function deleteRaporFromDb(dbId) {
   await sbFetch(`raporlar?id=eq.${dbId}`, { method: 'DELETE', prefer: 'return=minimal' });
 }
+
+// ============================================================
+// TASLAK RAPOR SİSTEMİ
+// ============================================================
+var taslakRaporlar = []; // Supabase pp_kv_store'dan yüklenir
+var _editingTaslakId = null; // Düzenlenen taslak ID'si
+
+async function taslakRaporlarLoad() {
+  try {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store?key=eq.pp_taslak_raporlar&select=key,value', {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    if (!res.ok) return;
+    var rows = await res.json();
+    if (rows && rows[0] && rows[0].value) taslakRaporlar = JSON.parse(rows[0].value);
+  } catch(e) {}
+}
+
+async function taslakRaporlarSave() {
+  await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store', {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify({ key: 'pp_taslak_raporlar', value: JSON.stringify(taslakRaporlar) })
+  });
+}
+
+async function saveTaslakRapor() {
+  const tarih = document.getElementById('f-tarih')?.value;
+  const bayi  = document.getElementById('f-bayi')?.value;
+  if (!tarih && !bayi) { toast('⚠️ En az tarih veya bayi girin', 'red'); return; }
+
+  const data = collectFormData();
+  if (!data) return;
+
+  const now = new Date();
+  const taslakId = _editingTaslakId || ('TR-' + now.getTime());
+
+  const taslak = {
+    id: taslakId,
+    savedAt: now.toLocaleString('tr-TR'),
+    bolgeMusduru: selectedMudur,
+    ...data,
+    fotograflar: [...fotograflar],
+  };
+
+  // Varsa güncelle, yoksa ekle
+  const idx = taslakRaporlar.findIndex(t => t.id === taslakId);
+  if (idx >= 0) taslakRaporlar[idx] = taslak;
+  else taslakRaporlar.unshift(taslak);
+
+  showLoading('Taslak kaydediliyor…');
+  try {
+    await taslakRaporlarSave();
+    _editingTaslakId = taslakId; // aynı taslağı güncellemeye devam
+    toast('💾 Taslak kaydedildi! Tüm Raporlar → Taslaklar\'dan erişebilirsiniz.', 'blue');
+    const el = document.getElementById('draft-indicator');
+    if (el) el.textContent = '💾 Taslak: ' + taslak.savedAt;
+  } catch(e) { toast('⚠️ Taslak kaydedilemedi', 'red'); }
+  finally { hideLoading(); }
+}
+
+function loadTaslakToForm(taslakId) {
+  const taslak = taslakRaporlar.find(t => t.id === taslakId);
+  if (!taslak) return;
+  _editingTaslakId = taslakId;
+  fotograflar = [...(taslak.fotograflar || [])];
+  renderYeniRapor(taslak);
+  showPage('yeni-rapor');
+  toast('📋 Taslak yüklendi, kaldığınız yerden devam edebilirsiniz.', 'blue');
+}
+
+async function deleteTaslakRapor(taslakId) {
+  if (!confirm('Bu taslak silinsin mi?')) return;
+  taslakRaporlar = taslakRaporlar.filter(t => t.id !== taslakId);
+  await taslakRaporlarSave();
+  if (_editingTaslakId === taslakId) { _editingTaslakId = null; }
+  renderTumRaporlar();
+  toast('🗑 Taslak silindi', 'blue');
+}
+
+// saveRapor sonrası taslağı temizle
+const _origSaveRapor = saveRapor;
+saveRapor = async function() {
+  await _origSaveRapor();
+  // Eğer taslaktan devam ediliyorsa taslağı sil
+  if (_editingTaslakId) {
+    taslakRaporlar = taslakRaporlar.filter(t => t.id !== _editingTaslakId);
+    await taslakRaporlarSave();
+    _editingTaslakId = null;
+  }
+};
 
 // ============================================================
 // LOADING OVERLAY
@@ -1115,9 +1208,29 @@ function renderYeniRapor(prefill={}) {
   const raporNo = prefill.raporNo || nextRaporNo();
   const today = new Date().toISOString().split('T')[0];
 
+  // Taslak raporları listele
+  const taslaklar = raporlar.filter(r => r.status === 'draft' && r.bolgeMusduru === selectedMudur);
+  const taslakHtml = taslaklar.length ? `
+  <div class="card" style="border-color:var(--yellow);background:rgba(202,138,4,0.04)">
+    <div class="card-title" style="color:var(--yellow)">💾 Kayıtlı Taslaklar (${taslaklar.length})</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Kaldığınız yerden devam etmek için bir taslak seçin.</div>
+    ${taslaklar.map(r=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--dark);border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+      <div>
+        <div style="font-weight:600;font-size:13px">${r.bayi||'—'} <span style="color:var(--muted);font-weight:400">· ${r.tarih||'—'}</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Rapor No: ${r.raporNo||'—'} · ${r.amac||'Amaç girilmemiş'}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn secondary sm" onclick="devamEt(${r._dbId})">✏️ Devam Et</button>
+        <button class="btn secondary sm" style="color:var(--accent);border-color:var(--accent)" onclick="taslakSil(${r._dbId})">🗑</button>
+      </div>
+    </div>`).join('')}
+  </div>` : '';
+
   document.getElementById('main-content').innerHTML = `
   <div class="page-title">🏍️ Yeni Ziyaret Raporu</div>
   <div class="page-sub" style="display:flex;justify-content:space-between;align-items:center"><span>Bölge Müdürü: <strong>${selectedMudur}</strong></span><span id="draft-indicator" style="font-size:11px;color:var(--muted)"></span></div>
+  ${taslakHtml}
 
   <div class="card">
     <div class="card-title">1. Genel Bilgiler</div>
@@ -1257,7 +1370,8 @@ function renderYeniRapor(prefill={}) {
   </div>
 
   <div class="btn-row">
-    <button class="btn" onclick="saveRapor()">💾 Kaydet</button>
+    <button class="btn" onclick="saveRapor()">📤 Gönder</button>
+    <button class="btn secondary" onclick="saveTaslakRapor()" style="border:1px solid var(--border)">💾 Taslak Kaydet</button>
     <button class="btn secondary" onclick="clearForm()">✕ Temizle</button>
   </div>
   `;
@@ -1611,10 +1725,10 @@ function openModalFotoViewer(dataUrl, caption, idx, total) {
   document.body.appendChild(overlay);
 }
 
-async function saveRapor() {
+async function collectRaporData(status) {
   const tarih = document.getElementById('f-tarih').value;
   const bayi = document.getElementById('f-bayi').value;
-  if (!tarih || !bayi) { toast('⚠️ Lütfen tarih ve bayi seçin!', 'red'); return; }
+  if (!tarih || !bayi) { toast('⚠️ Lütfen tarih ve bayi seçin!', 'red'); return null; }
 
   const perf = [];
   for (let i=0;i<PERF_ROWS.length;i++) {
@@ -1659,12 +1773,10 @@ async function saveRapor() {
     ai++;
   }
 
-  const rapor = {
+  return {
     id: Date.now(),
     raporNo: document.getElementById('f-raporNo').value,
-    tarih,
-    bolgeMusduru: selectedMudur,
-    bayi,
+    tarih, bolgeMusduru: selectedMudur, bayi,
     sehir: document.getElementById('f-sehir').value,
     katilimci: document.getElementById('f-katilimci').value,
     amac: document.getElementById('f-amac').value,
@@ -1673,7 +1785,45 @@ async function saveRapor() {
     yorumlar: document.getElementById('f-yorumlar').value,
     bayiGorusu: document.getElementById('f-bayigorusu').value,
     fotograflar: [...fotograflar],
+    status,
   };
+}
+
+async function saveTaslakRapor() {
+  const rapor = await collectRaporData('draft');
+  if (!rapor) return;
+
+  // Mevcut taslak varsa üzerine yaz
+  const prefillId = document.getElementById('f-prefill-id')?.value;
+  if (prefillId) rapor._dbId = parseInt(prefillId);
+
+  showLoading('Taslak kaydediliyor…');
+  try {
+    const dbId = await saveRaporToDb(rapor);
+    rapor.id = dbId; rapor._dbId = dbId;
+    const existing = raporlar.findIndex(r=>r._dbId===dbId);
+    if (existing>=0) raporlar[existing]=rapor; else raporlar.push(rapor);
+    // Form'a dbId'yi sakla (üzerine yazmak için)
+    let hiddenEl = document.getElementById('f-prefill-id');
+    if (!hiddenEl) {
+      hiddenEl = document.createElement('input');
+      hiddenEl.type = 'hidden'; hiddenEl.id = 'f-prefill-id';
+      document.body.appendChild(hiddenEl);
+    }
+    hiddenEl.value = dbId;
+    clearDraft();
+    toast('💾 Taslak kaydedildi! Daha sonra devam edebilirsiniz.', 'blue');
+  } catch(e) { toast('⚠️ Kayıt hatası: ' + e.message, 'red'); }
+  finally { hideLoading(); }
+}
+
+async function saveRapor() {
+  const rapor = await collectRaporData('submitted');
+  if (!rapor) return;
+
+  // Mevcut taslak varsa üzerine yaz
+  const prefillId = document.getElementById('f-prefill-id')?.value;
+  if (prefillId) rapor._dbId = parseInt(prefillId);
 
   showLoading('Kaydediliyor…');
   try {
@@ -1684,13 +1834,43 @@ async function saveRapor() {
     renderSidebar();
     clearDraft();
     stopDraftTimer();
-    toast('✓ Rapor kaydedildi!');
+    const el = document.getElementById('f-prefill-id');
+    if (el) el.value = '';
+    toast('✓ Rapor gönderildi!', 'green');
     clearForm();
   } catch(e) { toast('⚠️ Kayıt hatası: ' + e.message, 'red'); }
   finally { hideLoading(); }
 }
 
-function clearForm() { fotograflar = []; renderYeniRapor(); }
+function devamEt(dbId) {
+  const taslak = raporlar.find(r => r._dbId === dbId);
+  if (!taslak) return;
+  fotograflar = [...(taslak.fotograflar||[])];
+  renderYeniRapor(taslak);
+  // dbId'yi forma sakla
+  setTimeout(function() {
+    let hiddenEl = document.getElementById('f-prefill-id');
+    if (!hiddenEl) {
+      hiddenEl = document.createElement('input');
+      hiddenEl.type = 'hidden'; hiddenEl.id = 'f-prefill-id';
+      document.body.appendChild(hiddenEl);
+    }
+    hiddenEl.value = dbId;
+  }, 0);
+  toast('📋 Taslak yüklendi, kaldığınız yerden devam edin.', 'blue');
+}
+
+async function taslakSil(dbId) {
+  if (!confirm('Bu taslak silinecek. Emin misiniz?')) return;
+  try {
+    await deleteRaporFromDb(dbId);
+    raporlar = raporlar.filter(r => r._dbId !== dbId);
+    renderYeniRapor();
+    toast('🗑 Taslak silindi.', 'blue');
+  } catch(e) { toast('⚠️ Silinemedi: ' + e.message, 'red'); }
+}
+
+function clearForm() { fotograflar = []; const el = document.getElementById('f-prefill-id'); if(el) el.value=''; renderYeniRapor(); }
 
 // ============================================================
 // DASHBOARD
@@ -1929,18 +2109,74 @@ function renderTakvim() {
 // ============================================================
 // TÜM RAPORLAR
 // ============================================================
-function renderTumRaporlar() {
-  const mudurRaporlar = raporlar.filter(r=>r.bolgeMusduru===selectedMudur)
-    .sort((a,b)=>new Date(b.tarih)-new Date(a.tarih));
+var _tumRaporlarTab = 'raporlar'; // 'raporlar' | 'taslaklar'
+
+function renderTumRaporlar(tab) {
+  if (tab) _tumRaporlarTab = tab;
+  // Gönderilen raporlar (status submitted veya undefined)
+  const mudurRaporlar = raporlar.filter(r => r.bolgeMusduru === selectedMudur && r.status !== 'draft')
+    .sort((a,b) => new Date(b.tarih) - new Date(a.tarih));
+  // Taslak raporlar (status draft)
+  const mudurTaslaklar = raporlar.filter(r => r.bolgeMusduru === selectedMudur && r.status === 'draft')
+    .sort((a,b) => new Date(b.tarih) - new Date(a.tarih));
+
+  const tabStyle = (active) => active
+    ? 'padding:8px 16px;font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:inherit;border-bottom:2px solid var(--red);background:transparent;color:var(--red)'
+    : 'padding:8px 16px;font-size:13px;font-weight:600;border:none;cursor:pointer;font-family:inherit;border-bottom:2px solid transparent;background:transparent;color:var(--muted)';
 
   document.getElementById('main-content').innerHTML = `
   <div class="page-title">📋 Tüm Raporlar</div>
-  <div class="page-sub">Bölge Müdürü: <strong>${selectedMudur}</strong> — ${mudurRaporlar.length} rapor</div>
+  <div class="page-sub">Bölge Müdürü: <strong>${selectedMudur}</strong></div>
+  <div style="border-bottom:1px solid var(--border);margin-bottom:16px;display:flex;gap:0">
+    <button style="${tabStyle(_tumRaporlarTab==='raporlar')}" onclick="renderTumRaporlar('raporlar')">
+      📋 Gönderilen Raporlar <span style="background:var(--blue);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px">${mudurRaporlar.length}</span>
+    </button>
+    <button style="${tabStyle(_tumRaporlarTab==='taslaklar')}" onclick="renderTumRaporlar('taslaklar')">
+      💾 Taslaklar ${mudurTaslaklar.length ? `<span style="background:var(--yellow);color:#000;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px">${mudurTaslaklar.length}</span>` : ''}
+    </button>
+  </div>
+  ${_tumRaporlarTab === 'raporlar' ? `
   <input class="search-bar" placeholder="🔍 Bayi adı veya tarih ara..." oninput="filterRaporlar(this.value)">
   <div id="rapor-list">
     ${mudurRaporlar.length===0
       ? '<div class="empty-state">Henüz rapor yok. Yeni rapor oluşturun.</div>'
       : mudurRaporlar.map(r=>raporCard(r)).join('')}
+  </div>` : `
+  <div id="rapor-list">
+    ${mudurTaslaklar.length===0
+      ? '<div class="empty-state">Kaydedilmiş taslak yok.<br><small>Yeni Rapor formunda "💾 Taslak Kaydet" butonunu kullanın.</small></div>'
+      : mudurTaslaklar.map(r=>`
+        <div class="visit-item">
+          <div class="visit-item-header">
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:14px">${r.bayi||'—'} — <span style="color:var(--muted);font-weight:400">${r.tarih||'—'}</span></div>
+              <div style="font-size:12px;color:var(--muted);margin-top:3px">${r.amac||'Amaç girilmemiş'} · Rapor No: ${r.raporNo||'—'}</div>
+            </div>
+            <div class="visit-item-actions">
+              <button class="btn sm secondary" onclick="devamEt(${r._dbId})">✏️ Devam Et</button>
+              <button class="btn sm secondary" style="color:var(--accent)" onclick="taslakSil(${r._dbId})">🗑</button>
+            </div>
+          </div>
+        </div>`).join('')}
+  </div>`}`;
+}
+
+function taslakCard(t) {
+  const bayi  = t.bayi  || '—';
+  const tarih = t.tarih || '—';
+  const amac  = t.amac  || '—';
+  return `<div class="visit-item">
+    <div class="visit-item-header">
+      <div onclick="loadTaslakToForm('${t.id}')" style="cursor:pointer;flex:1">
+        <div style="font-weight:600;font-size:14px">${bayi} — ${tarih}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">${amac}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">💾 Son kayıt: ${t.savedAt}</div>
+      </div>
+      <div class="visit-item-actions">
+        <button class="btn sm secondary" onclick="loadTaslakToForm('${t.id}')">✏️ Devam Et</button>
+        <button class="btn sm secondary" onclick="deleteTaslakRapor('${t.id}')">🗑</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2586,8 +2822,9 @@ async function doLogin() {
 
   // Supabase'den raporları yükle
   try { await loadRaporlarFromDB(); } catch(e) { console.warn('loadRaporlar:', e); }
-  // Kısayolları yükle
+  // Kısayolları ve taslak raporları yükle
   kisayollarLoad().catch(function(){});
+  taslakRaporlarLoad().catch(function(){});
 
   // Admin butonu göster/gizle
   document.querySelectorAll('.admin-only').forEach(el => {
@@ -2598,6 +2835,7 @@ async function doLogin() {
   renderSidebar(user.role === 'admin');
   // Taslak kontrolü
   if (!checkAndOfferDraft()) renderAnaSayfa();
+  // checkAndOfferDraft true döndürdüğünde renderYeniRapor zaten çağrılmış olur
 
   // Session'a kaydet — F5 sonrası otomatik giriş için
   sessionStorage.setItem('bz_user', JSON.stringify({ username: user.username, password: user.password }));
@@ -4819,7 +5057,12 @@ async function etkLoadFromDb() {
     var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?select=*&order=created_at.desc', {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
     });
-    if (!res.ok) return false;
+    if (!res.ok) {
+      var errText = await res.text();
+      console.warn('etkLoad HTTP error:', res.status, errText);
+      toast('⚠️ Etkinlik yüklenemedi: ' + res.status + ' — ' + errText.slice(0,100), 'red');
+      return false;
+    }
     var rows = await res.json();
     ETK_acts = rows.map(function(r) {
       return {
@@ -7560,7 +7803,7 @@ async function kisayollarSave(data) {
   });
 }
 
-var HOME_CITY = localStorage.getItem('home_city') || '';
+var HOME_CITY = localStorage.getItem('home_city') || 'Istanbul';
 var HOME_WEATHER = null;
 
 async function fetchWeather(city) {
@@ -7608,7 +7851,7 @@ function renderAnaSayfa() {
     ksHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px">';
     KISAYOLLAR.slice(0,4).forEach(function(k) {
       ksHtml += '<a href="' + (k.url||'#') + '" target="_blank" rel="noopener" style="text-decoration:none">'
-        + '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 16px;cursor:pointer;transition:all 0.2s;display:flex;flex-direction:column;gap:8px;align-items:flex-start" '
+        + '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 16px;cursor:pointer;transition:all 0.2s;display:flex;flex-direction:column;gap:8px;align-items:flex-start;height:100%;box-sizing:border-box" '
         + 'onmouseover="this.style.borderColor=\'var(--red)\';this.style.transform=\'translateY(-2px)\'" '
         + 'onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'\'">'
         + '<div style="font-size:26px">' + (k.icon||'🔗') + '</div>'
@@ -7646,6 +7889,12 @@ function renderAnaSayfa() {
     + '<div id="home-fin-content" style="color:var(--muted);font-size:12px">Yükleniyor...</div>'
     + '</div>';
 
+  // Ziyaret planı tablosu
+  var visitHtml = homeVisitTable();
+
+  // Bekleyen etkinlikler
+  var etkHtml = homePendingEtkinlikler();
+
   document.getElementById('main-content').innerHTML =
     '<div style="max-width:900px">'
     // Karşılama
@@ -7656,15 +7905,136 @@ function renderAnaSayfa() {
     // Kısayollar
     + '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Hızlı Erişim</div>'
     + ksHtml
-    // Alt iki kolon
+    // Ziyaret + Etkinlik yan yana
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">'
+    + '<div>' + visitHtml + '</div>'
+    + '<div>' + etkHtml + '</div>'
+    + '</div>'
+    // Piyasa + Hava yan yana
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
     + '<div>' + finHtml + '</div>'
     + '<div>' + weatherHtml + '</div>'
     + '</div>'
     + '</div>';
 
-  // Piyasa verisi yükle
+  // Piyasa verisi ve hava durumu yükle
   homeLoadFinance();
+  if (HOME_CITY && !HOME_WEATHER) {
+    fetchWeather(HOME_CITY).then(function(data) {
+      HOME_WEATHER = data;
+      var el = document.getElementById('home-weather-content');
+      if (el && data) el.innerHTML = homeWeatherRender(data);
+    });
+  }
+}
+
+function homeVisitTable() {
+  var now = new Date();
+  var year = now.getFullYear();
+  var month = now.getMonth() + 1; // 1-12
+  var monthKey = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()];
+  var monthLabel = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'][now.getMonth()];
+
+  // Bu kullanıcının sorumlu olduğu bayiler
+  var mudur = currentUser ? currentUser.mudur : selectedMudur;
+  var myDealers = (ADMIN_BAYILER_RT || BAYILER).filter(function(b){ return b.mudur === mudur; });
+
+  if (!myDealers.length) return '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">📅 ' + monthLabel + ' Ziyaret Planı</div><div style="color:var(--muted);font-size:12px">Bayi tanımlanmamış.</div></div>';
+
+  var rows = myDealers.map(function(b) {
+    var dn = b.ad || b.name;
+    var plan = ((PP_VISIT[year] || {})[dn] || {})[monthKey] || 0;
+    // Gerçekleşme: bu ay bu bayiye yapılan ziyaret sayısı
+    var actual = raporlar.filter(function(r) {
+      if (r.bayi !== dn) return false;
+      if (!r.tarih) return false;
+      var parts = r.tarih.split('-');
+      return parseInt(parts[0]) === year && parseInt(parts[1]) === month;
+    }).length;
+    var ok = plan > 0 && actual >= plan;
+    var partial = plan > 0 && actual > 0 && actual < plan;
+    var dot = ok ? '🟢' : partial ? '🟡' : plan > 0 ? '🔴' : '⚪';
+    return '<tr>'
+      + '<td style="font-size:12px;font-weight:600">' + dn + '</td>'
+      + '<td style="text-align:center;font-size:12px;color:var(--blue)">' + (plan||'—') + '</td>'
+      + '<td style="text-align:center;font-size:12px">' + actual + '</td>'
+      + '<td style="text-align:center;font-size:14px">' + dot + '</td>'
+      + '</tr>';
+  }).join('');
+
+  var totalPlan = myDealers.reduce(function(s,b){
+    var dn = b.ad||b.name;
+    return s + (((PP_VISIT[year]||{})[dn]||{})[monthKey]||0);
+  },0);
+  var totalActual = myDealers.reduce(function(s,b){
+    var dn = b.ad||b.name;
+    return s + raporlar.filter(function(r){
+      if(r.bayi!==dn||!r.tarih)return false;
+      var p=r.tarih.split('-');
+      return parseInt(p[0])===year&&parseInt(p[1])===month;
+    }).length;
+  },0);
+
+  return '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    + '<div style="font-size:13px;font-weight:700">📅 ' + monthLabel + ' Ziyaret Planı</div>'
+    + '<div style="font-size:12px;color:var(--muted)">' + totalActual + ' / ' + totalPlan + ' ziyaret</div>'
+    + '</div>'
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="background:var(--mid)">'
+    + '<th style="padding:6px 8px;text-align:left;font-size:11px;color:var(--muted)">Bayi</th>'
+    + '<th style="padding:6px 8px;text-align:center;font-size:11px;color:var(--blue)">Plan</th>'
+    + '<th style="padding:6px 8px;text-align:center;font-size:11px;color:var(--green)">Gerçek</th>'
+    + '<th style="padding:6px 8px;text-align:center;font-size:11px;color:var(--muted)">Durum</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+    + '</div>';
+}
+
+function homePendingEtkinlikler() {
+  var cu = currentUser;
+  if (!cu) return '';
+
+  // Rolüne göre bekleyen etkinlikler
+  var pending = ETK_acts.filter(function(a) {
+    if (cu.role === 'mudur')        return a.status === 'draft' && a.did === cu.id;
+    if (cu.role === 'satis_muduru') return a.status === 'pending_sm';
+    if (cu.role === 'direktor')     return a.status === 'pending_dir';
+    if (cu.role === 'admin')        return ['pending_sm','pending_dir','revision_requested'].includes(a.status);
+    return false;
+  });
+
+  var label = cu.role === 'mudur' ? 'Taslak Etkinliklerim' : 'Onay Bekleyen Etkinlikler';
+
+  var rows = pending.slice(0,5).map(function(a) {
+    var renk = a.status==='draft'?'etk-bd0':a.status==='pending_sm'?'etk-bd1':a.status==='pending_dir'?'etk-bd3':'etk-bd2';
+    var sl = ETK_SL[a.status] || a.status;
+    return '<tr onclick="showPage(\'etkinlik\')" style="cursor:pointer">'
+      + '<td style="font-size:12px;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (a.title||'—') + '</td>'
+      + '<td style="font-size:11px;color:var(--muted)">' + (a.dn||'—') + '</td>'
+      + '<td style="font-size:11px;color:var(--muted);white-space:nowrap">' + (a.date||'—') + '</td>'
+      + '<td><span class="etk-badge ' + renk + '" style="font-size:10px">' + sl + '</span></td>'
+      + '</tr>';
+  }).join('');
+
+  var emptyMsg = cu.role === 'mudur' ? 'Taslak etkinlik yok.' : 'Onay bekleyen etkinlik yok.';
+
+  return '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    + '<div style="font-size:13px;font-weight:700">🎪 ' + label + '</div>'
+    + (pending.length ? '<span style="background:var(--red);color:#fff;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:700">' + pending.length + '</span>' : '')
+    + '</div>'
+    + (pending.length === 0
+      ? '<div style="color:var(--muted);font-size:12px;padding:4px 0">' + emptyMsg + '</div>'
+      : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+        + '<thead><tr style="background:var(--mid)">'
+        + '<th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--muted)">Etkinlik</th>'
+        + '<th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--muted)">Bayi</th>'
+        + '<th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--muted)">Tarih</th>'
+        + '<th style="padding:5px 8px;font-size:10px;color:var(--muted)">Durum</th>'
+        + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+        + (pending.length > 5 ? '<div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:right">+' + (pending.length-5) + ' daha → <span onclick="showPage(\'etkinlik\')" style="color:var(--blue);cursor:pointer">Tümünü Gör</span></div>' : '')
+    )
+    + '</div>';
 }
 
 async function homeWeatherSearch() {
@@ -7705,48 +8075,44 @@ function homeWeatherRender(data) {
 async function homeLoadFinance() {
   var el = document.getElementById('home-fin-content');
   if (!el) return;
+
   try {
-    // Yahoo Finance proxy üzerinden döviz
-    var [usdRes, eurRes, bistRes] = await Promise.all([
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDTRY%3DX?interval=1d&range=1d'),
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/EURTRY%3DX?interval=1d&range=1d'),
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EXU100?interval=1d&range=1d'),
-    ]);
-    var [usdData, eurData, bistData] = await Promise.all([usdRes.json(), eurRes.json(), bistRes.json()]);
-
-    function getPrice(d) {
-      try { return d.chart.result[0].meta.regularMarketPrice; } catch(e) { return null; }
-    }
-    function getChange(d) {
-      try {
-        var m = d.chart.result[0].meta;
-        return ((m.regularMarketPrice - m.chartPreviousClose) / m.chartPreviousClose * 100);
-      } catch(e) { return null; }
-    }
-    function fmtChange(c) {
-      if (c === null) return '';
-      var col = c >= 0 ? 'var(--green)' : 'var(--accent)';
-      return '<span style="color:' + col + ';font-size:11px">' + (c >= 0 ? '▲' : '▼') + Math.abs(c).toFixed(2) + '%</span>';
-    }
-
-    var usd = getPrice(usdData), usdC = getChange(usdData);
-    var eur = getPrice(eurData), eurC = getChange(eurData);
-    var bist = getPrice(bistData), bistC = getChange(bistData);
+    // exchangerate-api.com (ücretsiz, CORS açık)
+    var rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
+    var rateData = await rateRes.json();
+    var usdTry = rateData.rates && rateData.rates.TRY ? rateData.rates.TRY : null;
+    var eurUsd = rateData.rates && rateData.rates.EUR ? rateData.rates.EUR : null;
+    var eurTry = (usdTry && eurUsd) ? (usdTry / eurUsd) : null;
 
     var rows = [
-      { label: '🇺🇸 USD/TRY', val: usd ? usd.toFixed(2) : '—', chg: fmtChange(usdC) },
-      { label: '🇪🇺 EUR/TRY', val: eur ? eur.toFixed(2) : '—', chg: fmtChange(eurC) },
-      { label: '📊 BIST 100', val: bist ? Math.round(bist).toLocaleString('tr-TR') : '—', chg: fmtChange(bistC) },
+      { label: '🇺🇸 USD/TRY', val: usdTry ? usdTry.toFixed(2) : '—', sub: 'Dolar' },
+      { label: '🇪🇺 EUR/TRY', val: eurTry ? eurTry.toFixed(2) : '—', sub: 'Euro' },
     ];
 
+    // BIST için ayrı kaynak dene
+    var bistVal = '—';
+    try {
+      var bistRes = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EXU100?interval=1d&range=1d', { mode: 'cors' });
+      if (bistRes.ok) {
+        var bistData = await bistRes.json();
+        var price = bistData.chart.result[0].meta.regularMarketPrice;
+        bistVal = Math.round(price).toLocaleString('tr-TR');
+      }
+    } catch(e) { bistVal = '—'; }
+
+    rows.push({ label: '📊 BIST 100', val: bistVal, sub: 'Endeks' });
+
     el.innerHTML = rows.map(function(r) {
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">'
         + '<span style="font-size:12px;color:var(--muted)">' + r.label + '</span>'
-        + '<div style="text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text)">' + r.val + '</div>' + r.chg + '</div>'
-        + '</div>';
-    }).join('') + '<div style="font-size:10px;color:var(--muted);margin-top:8px">Yahoo Finance · Anlık veriler</div>';
+        + '<div style="text-align:right">'
+        + '<div style="font-size:16px;font-weight:700;color:var(--text)">' + r.val + '</div>'
+        + '<div style="font-size:10px;color:var(--muted)">' + r.sub + '</div>'
+        + '</div></div>';
+    }).join('') + '<div style="font-size:10px;color:var(--muted);margin-top:8px">open.er-api.com · Güncelleme: Günlük</div>';
+
   } catch(e) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Piyasa verisi yüklenemedi.</div>';
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">Piyasa verisi yüklenemedi.</div>';
   }
 }
 
