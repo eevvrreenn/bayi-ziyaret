@@ -1765,20 +1765,6 @@ function loadDashboard() {
 
   <div class="card">
     <div class="card-title">Son Ziyaret Notları</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div>
-        <div class="section-header">Yorumlar & Öneriler</div>
-        <p style="font-size:13px;line-height:1.7;color:${son.yorumlar?'var(--text)':'var(--muted)'}">
-          ${son.yorumlar || 'Not girilmemiş'}
-        </p>
-      </div>
-      <div>
-        <div class="section-header">Bayi Görüşü / Talebi</div>
-        <p style="font-size:13px;line-height:1.7;color:${son.bayiGorusu?'var(--text)':'var(--muted)'}">
-          ${son.bayiGorusu || 'Not girilmemiş'}
-        </p>
-      </div>
-    </div>
     <div class="section-header" style="margin-bottom:10px">Aksiyonlar</div>
     <div id="dash-aksiyon-list">
       ${dashRenderAksiyonlar(bayi, bayiRaporlar)}
