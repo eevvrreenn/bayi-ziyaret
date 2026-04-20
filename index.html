@@ -1750,29 +1750,22 @@ function loadDashboard() {
   </div>
 
   <div class="card">
-    <div class="card-title">Son Ziyaret Performans Verileri (${son.tarih})</div>
-    <table class="data-table">
-      <thead><tr><th>Gösterge</th><th>Hedef</th><th>Gerçekleşen</th><th>Durum</th></tr></thead>
-      <tbody>
-        ${PERF_ROWS.map((row,i)=>{
-          const h=parseFloat(son.perf?.[i]?.hedef)||0;
-          const g=parseFloat(son.perf?.[i]?.gercek)||0;
-          const ok = g>=h;
-          const val = son.perf?.[i]?.gercek||'-';
-          const hed = son.perf?.[i]?.hedef||'-';
-          return `<tr>
-            <td style="font-size:12px">${row.label}${row.tip==='oran'?' (%)':''}</td>
-            <td>${hed}</td><td>${val}</td>
-            <td>${h&&g?`<span class="badge ${ok?'green':'red'}">${ok?'✓ Hedefte':'✗ Geride'}</span>`:'<span class="badge blue">Veri Yok</span>'}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
+    <div class="card-title">Ziyaret Geçmişi (${bayiRaporlar.length} Ziyaret)</div>
+    ${bayiRaporlar.map(r=>`
+    <div class="visit-item" onclick="viewReport(${r.id})">
+      <div>
+        <div style="font-weight:600;font-size:14px">${r.tarih} — ${r.amac}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">Rapor No: ${r.raporNo} · ${r.tur} · Katılımcılar: ${r.katilimci||'-'}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="badge blue">Görüntüle →</span>
+      </div>
+    </div>`).join('')}
   </div>
 
   <div class="card">
     <div class="card-title">Son Ziyaret Notları</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div>
         <div class="section-header">Yorumlar & Öneriler</div>
         <p style="font-size:13px;line-height:1.7;color:${son.yorumlar?'var(--text)':'var(--muted)'}">
@@ -1786,32 +1779,71 @@ function loadDashboard() {
         </p>
       </div>
     </div>
-    ${son.aksiyonlar?.filter(a=>a.bulgu).length ? `
-    <div class="section-header">Açık Aksiyonlar</div>
-    <table class="data-table">
-      <thead><tr><th>#</th><th>Bulgu/Sorun</th><th>Aksiyon</th><th>Sorumlu</th><th>Termin</th><th>Durum</th></tr></thead>
-      <tbody>
-        ${son.aksiyonlar.filter(a=>a.bulgu).map((a,i)=>`
-        <tr><td>${i+1}</td><td>${a.bulgu}</td><td>${a.aksiyon}</td><td>${a.sorumlu}</td><td>${a.termin}</td>
-        <td><span class="badge ${a.durum==='Kapalı'?'green':a.durum==='Devam'?'yellow':'red'}">${a.durum||'Açık'}</span></td></tr>`).join('')}
-      </tbody>
-    </table>` : ''}
-  </div>
-
-  <div class="card">
-    <div class="card-title">Ziyaret Geçmişi (${bayiRaporlar.length} Ziyaret)</div>
-    ${bayiRaporlar.map(r=>`
-    <div class="visit-item" onclick="viewReport(${r.id})">
-      <div>
-        <div style="font-weight:600;font-size:14px">${r.tarih} — ${r.amac}</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:3px">Rapor No: ${r.raporNo} · ${r.tur} · Katılımcılar: ${r.katilimci||'-'}</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <span class="badge blue">Görüntüle →</span>
-      </div>
-    </div>`).join('')}
+    <div class="section-header" style="margin-bottom:10px">Aksiyonlar</div>
+    <div id="dash-aksiyon-list">
+      ${dashRenderAksiyonlar(bayi, bayiRaporlar)}
+    </div>
   </div>`;
 }
+
+// ── Dashboard Aksiyon Fonksiyonları ──────────────────────────
+function dashRenderAksiyonlar(bayi, bayiRaporlar) {
+  var tumAksiyonlar = [];
+  bayiRaporlar.forEach(function(r) {
+    if (!r.aksiyonlar) return;
+    r.aksiyonlar.forEach(function(a, ai) {
+      if (!a.bulgu) return;
+      tumAksiyonlar.push({ raporId: r.id, tarih: r.tarih, ai: ai, a: a });
+    });
+  });
+  if (!tumAksiyonlar.length) {
+    return '<div style="color:var(--muted);font-size:13px;padding:8px 0">Henüz aksiyon kaydı yok.</div>';
+  }
+  var durumRenk = { 'Kapali': 'green', 'Devam': 'yellow', 'Acik': 'red' };
+  var DURUMLAR = ['Açık', 'Devam', 'Kapalı'];
+  var rows = tumAksiyonlar.map(function(item, idx) {
+    var a = item.a;
+    var durum = a.durum || 'Açık';
+    var renk = durum==='Kapalı'?'green':durum==='Devam'?'yellow':'red';
+    var opts = DURUMLAR.map(function(d){ return '<option value="'+d+'"' + (d===durum?' selected':'') + '>' + d + '</option>'; }).join('');
+    return '<tr id="dash-ak-row-'+item.raporId+'-'+item.ai+'">' +
+      '<td style="color:var(--muted);font-size:11px">' + (idx+1) + '</td>' +
+      '<td style="font-size:12px;white-space:nowrap">' + item.tarih + '</td>' +
+      '<td style="font-size:12px">' + (a.bulgu||'—') + '</td>' +
+      '<td style="font-size:12px">' + (a.aksiyon||'—') + '</td>' +
+      '<td style="font-size:12px">' + (a.sorumlu||'—') + '</td>' +
+      '<td style="font-size:12px;white-space:nowrap">' + (a.termin||'—') + '</td>' +
+      '<td><span class="badge ' + renk + '">' + durum + '</span></td>' +
+      '<td><select onchange="dashAksiyonGuncelle(' + item.raporId + ',' + item.ai + ',this.value)" style="font-size:11px;padding:3px 6px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-family:inherit">' + opts + '</select></td>' +
+      '</tr>';
+  }).join('');
+  return '<table class="data-table"><thead><tr>' +
+    '<th>#</th><th>Tarih</th><th>Bulgu / Sorun</th><th>Aksiyon</th><th>Sorumlu</th><th>Termin</th><th>Durum</th><th style="width:80px">Durum Güncelle</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+async function dashAksiyonGuncelle(raporId, aksiyonIdx, yeniDurum) {
+  var rapor = raporlar.find(function(r){ return r.id === raporId; });
+  if (!rapor || !rapor.aksiyonlar || !rapor.aksiyonlar[aksiyonIdx]) return;
+  rapor.aksiyonlar[aksiyonIdx].durum = yeniDurum;
+  var row = document.getElementById('dash-ak-row-' + raporId + '-' + aksiyonIdx);
+  if (row) {
+    var badge = row.querySelector('.badge');
+    if (badge) {
+      badge.className = 'badge ' + (yeniDurum==='Kapalı'?'green':yeniDurum==='Devam'?'yellow':'red');
+      badge.textContent = yeniDurum;
+    }
+  }
+  try {
+    await fetch(SUPABASE_URL + '/rest/v1/raporlar?id=eq.' + raporId, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ aksiyonlar: rapor.aksiyonlar })
+    });
+    toast('✅ Aksiyon durumu güncellendi', 'green');
+  } catch(e) { toast('⚠️ Kaydedilemedi', 'red'); }
+}
+
 
 // ============================================================
 // TAKVİM
