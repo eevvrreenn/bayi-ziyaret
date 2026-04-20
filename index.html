@@ -587,6 +587,7 @@ function saveConfig() {
     <button class="drawer-close" onclick="closeDrawer()">✕</button>
   </div>
   <div class="drawer-nav">
+    <button class="drawer-nav-btn" onclick="showPage('anasayfa');closeDrawer()"><span class="icon">🏠</span> Ana Sayfa</button>
     <button class="drawer-nav-btn active" onclick="showPage('yeni-rapor');closeDrawer()"><span class="icon">➕</span> Yeni Rapor</button>
     <button class="drawer-nav-btn" onclick="showPage('dashboard');closeDrawer()"><span class="icon">📊</span> Bayi Dashboard</button>
     <button class="drawer-nav-btn" onclick="showPage('takvim');closeDrawer()"><span class="icon">📅</span> Ziyaret Takvimi</button>
@@ -609,6 +610,7 @@ function saveConfig() {
     <div class="logo"><span>🏍️</span><span class="logo-text">BAYİ ZİYARET SİSTEMİ</span></div>
   </div>
   <div class="nav">
+    <button class="nav-btn" onclick="showPage('anasayfa')">🏠 Ana Sayfa</button>
     <button class="nav-btn active" onclick="showPage('yeni-rapor')">+ Yeni Rapor</button>
     <button class="nav-btn" onclick="showPage('dashboard')">Bayi Dashboard</button>
     <button class="nav-btn" onclick="showPage('takvim')">Ziyaret Takvimi</button>
@@ -1094,7 +1096,8 @@ function showPage(page) {
   if (currentPage === 'yeni-rapor' && page !== 'yeni-rapor') { saveDraft(); stopDraftTimer(); }
   currentPage = page;
   updateNavActive(page);
-  if (page==='yeni-rapor') renderYeniRapor();
+  if (page==='anasayfa') renderAnaSayfa();
+  else if (page==='yeni-rapor') renderYeniRapor();
   else if (page==='dashboard') renderDashboard();
   else if (page==='takvim') renderTakvim();
   else if (page==='tum-raporlar') renderTumRaporlar();
@@ -2583,6 +2586,8 @@ async function doLogin() {
 
   // Supabase'den raporları yükle
   try { await loadRaporlarFromDB(); } catch(e) { console.warn('loadRaporlar:', e); }
+  // Kısayolları yükle
+  kisayollarLoad().catch(function(){});
 
   // Admin butonu göster/gizle
   document.querySelectorAll('.admin-only').forEach(el => {
@@ -2592,7 +2597,7 @@ async function doLogin() {
   // Sidebar: admin tüm müdürleri görür
   renderSidebar(user.role === 'admin');
   // Taslak kontrolü
-  if (!checkAndOfferDraft()) renderYeniRapor();
+  if (!checkAndOfferDraft()) renderAnaSayfa();
 
   // Session'a kaydet — F5 sonrası otomatik giriş için
   sessionStorage.setItem('bz_user', JSON.stringify({ username: user.username, password: user.password }));
@@ -4991,16 +4996,94 @@ function etkRenderDB(c, cu) {
 
 function etkInitCharts() {
   if (typeof Chart === 'undefined') return;
+
+  // ── Grafik 1: Aylık Etkinlik & Harcama ────────────────────
   var ca = document.getElementById('etkCA');
-  if (ca && !ca._ci) {
-    ca._ci = new Chart(ca, {type:'bar',data:{labels:['Oca','Şub','Mar','Nis','May','Haz'],datasets:[
-      {label:'Etkinlik',data:[1,2,1,3,2,2],backgroundColor:'rgba(37,99,235,0.55)',borderRadius:4,yAxisID:'y'},
-      {label:'Harcama (k₺)',data:[28,45,22,78,55,45],type:'line',borderColor:'var(--accent)',backgroundColor:'rgba(220,38,38,0.08)',tension:.4,pointRadius:4,pointBackgroundColor:'var(--accent)',yAxisID:'y1',fill:true}
-    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7A8FA3',font:{size:10}}}},scales:{y:{ticks:{color:'#7A8FA3'},grid:{color:'rgba(209,220,232,0.5)'}},y1:{position:'right',ticks:{color:'#7A8FA3'},grid:{drawOnChartArea:false}}}}});
+  if (ca) {
+    if (ca._ci) { ca._ci.destroy(); ca._ci = null; }
+
+    // Son 6 ayın etiketlerini oluştur
+    var months = [];
+    var now = new Date();
+    for (var i = 5; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ label: ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'][d.getMonth()] + ' ' + String(d.getFullYear()).slice(2), month: String(d.getMonth()+1).padStart(2,'0'), year: d.getFullYear() });
+    }
+
+    var countData = months.map(function(m) {
+      return ETK_acts.filter(function(a) {
+        if (!a.date) return false;
+        var parts = a.date.split('-');
+        return parts[0] == m.year && parts[1] == m.month;
+      }).length;
+    });
+
+    var amtData = months.map(function(m) {
+      return ETK_acts.filter(function(a) {
+        if (!a.date) return false;
+        var parts = a.date.split('-');
+        return parts[0] == m.year && parts[1] == m.month;
+      }).reduce(function(s, a) { return s + (a.appAmt || a.amt || 0); }, 0) / 1000;
+    });
+
+    ca._ci = new Chart(ca, {
+      type: 'bar',
+      data: {
+        labels: months.map(function(m){ return m.label; }),
+        datasets: [
+          { label: 'Etkinlik Sayısı', data: countData, backgroundColor: 'rgba(37,99,235,0.55)', borderRadius: 4, yAxisID: 'y' },
+          { label: 'Harcama (k₺)', data: amtData, type: 'line', borderColor: 'var(--accent)', backgroundColor: 'rgba(220,38,38,0.08)', tension: .4, pointRadius: 4, pointBackgroundColor: 'var(--accent)', yAxisID: 'y1', fill: true }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#7A8FA3', font: { size: 10 } } } },
+        scales: {
+          y:  { ticks: { color: '#7A8FA3' }, grid: { color: 'rgba(209,220,232,0.5)' }, beginAtZero: true },
+          y1: { position: 'right', ticks: { color: '#7A8FA3' }, grid: { drawOnChartArea: false }, beginAtZero: true }
+        }
+      }
+    });
   }
+
+  // ── Grafik 2: Durum Dağılımı ───────────────────────────────
   var cb = document.getElementById('etkCB');
-  if (cb && !cb._ci) {
-    cb._ci = new Chart(cb, {type:'doughnut',data:{labels:['Tamamlandı','Onaylı','BM Onayında','Revizyon','Reddedildi'],datasets:[{data:[2,1,1,1,0],backgroundColor:['#15803D','#1D4ED8','#7c3aed','#B45309','#DC2626'],borderWidth:2,borderColor:'#FFFFFF'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7A8FA3',font:{size:10},padding:8,boxWidth:10}}},cutout:'60%'}});
+  if (cb) {
+    if (cb._ci) { cb._ci.destroy(); cb._ci = null; }
+
+    var statusMap = {
+      completed:          { label: 'Tamamlandı',       color: '#15803D' },
+      approved:           { label: 'Onaylandı',         color: '#1D4ED8' },
+      pending_sm:         { label: 'SM Onayında',       color: '#7c3aed' },
+      pending_dir:        { label: 'Direktör Onayında', color: '#0891B2' },
+      revision_requested: { label: 'Revizyon',          color: '#B45309' },
+      rejected:           { label: 'Reddedildi',        color: '#DC2626' },
+      draft:              { label: 'Taslak',            color: '#94a3b8' },
+    };
+
+    var labels = [], data = [], colors = [];
+    Object.keys(statusMap).forEach(function(k) {
+      var cnt = ETK_acts.filter(function(a){ return a.status === k; }).length;
+      if (cnt > 0) {
+        labels.push(statusMap[k].label);
+        data.push(cnt);
+        colors.push(statusMap[k].color);
+      }
+    });
+
+    if (!data.length) { labels = ['Veri Yok']; data = [1]; colors = ['#e2e8f0']; }
+
+    cb._ci = new Chart(cb, {
+      type: 'doughnut',
+      data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 2, borderColor: '#FFFFFF' }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#7A8FA3', font: { size: 10 }, padding: 8, boxWidth: 10 } }
+        },
+        cutout: '60%'
+      }
+    });
   }
 }
 
@@ -5590,6 +5673,7 @@ function _renderAdminPanelInner() {
     <button class="admin-tab-btn ${adminTab==='users'?'active':''}" onclick="adminSetTab('users')">👤 Kullanıcılar</button>
     <button class="admin-tab-btn ${adminTab==='bayiler'?'active':''}" onclick="adminSetTab('bayiler')">🏍️ Bayiler</button>
     <button class="admin-tab-btn ${adminTab==='mudurler'?'active':''}" onclick="adminSetTab('mudurler')">📋 Müdür Özeti</button>
+    <button class="admin-tab-btn ${adminTab==='kisayollar'?'active':''}" onclick="adminSetTab('kisayollar')">🔗 Kısayollar</button>
   </div>
   <div id="admin-tab-content"></div>`;
 
@@ -5612,9 +5696,10 @@ function adminSetTab(tab) {
 function adminRenderTab() {
   const c = document.getElementById('admin-tab-content');
   if (!c) return;
-  if (adminTab === 'users')    adminRenderUsers(c);
-  if (adminTab === 'bayiler')  adminRenderBayiler(c);
-  if (adminTab === 'mudurler') adminRenderMudurOzet(c);
+  if (adminTab === 'users')      adminRenderUsers(c);
+  if (adminTab === 'bayiler')    adminRenderBayiler(c);
+  if (adminTab === 'mudurler')   adminRenderMudurOzet(c);
+  if (adminTab === 'kisayollar') adminRenderKisayollar(c);
 }
 
 function adminInjectTabCSS() {
@@ -7449,6 +7534,264 @@ function fcDownloadTemplate() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wgRows), 'FC-Weights');
   XLSX.writeFile(wb, 'FC_Template_' + period + '.xlsx');
 }
+// ============================================================
+// ANA SAYFA
+// ============================================================
+
+var KISAYOLLAR = []; // Supabase'den yüklenir
+
+async function kisayollarLoad() {
+  try {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store?key=eq.pp_kisayollar&select=key,value', {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    if (!res.ok) return;
+    var rows = await res.json();
+    if (rows && rows[0] && rows[0].value) KISAYOLLAR = JSON.parse(rows[0].value);
+  } catch(e) {}
+}
+
+async function kisayollarSave(data) {
+  KISAYOLLAR = data;
+  await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store', {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify({ key: 'pp_kisayollar', value: JSON.stringify(data) })
+  });
+}
+
+var HOME_CITY = localStorage.getItem('home_city') || '';
+var HOME_WEATHER = null;
+
+async function fetchWeather(city) {
+  // Open-Meteo + geocoding (ücretsiz, key gerektirmez)
+  try {
+    var geoRes = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=1&language=tr&format=json');
+    var geoData = await geoRes.json();
+    if (!geoData.results || !geoData.results.length) return null;
+    var loc = geoData.results[0];
+    var wRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + loc.latitude + '&longitude=' + loc.longitude + '&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Europe%2FIstanbul&forecast_days=7');
+    var wData = await wRes.json();
+    return { city: loc.name, daily: wData.daily };
+  } catch(e) { return null; }
+}
+
+function weatherIcon(code) {
+  if (code === 0) return '☀️';
+  if (code <= 2) return '⛅';
+  if (code <= 3) return '☁️';
+  if (code <= 48) return '🌫️';
+  if (code <= 57) return '🌦️';
+  if (code <= 67) return '🌧️';
+  if (code <= 77) return '🌨️';
+  if (code <= 82) return '🌧️';
+  if (code <= 86) return '❄️';
+  if (code <= 99) return '⛈️';
+  return '🌤️';
+}
+
+var TR_DAYS = ['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+
+function renderAnaSayfa() {
+  currentPage = 'anasayfa';
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.bottom-nav-btn').forEach(b => b.classList.remove('active'));
+
+  var user = currentUser || {};
+  var hour = new Date().getHours();
+  var greeting = hour < 12 ? 'Günaydın' : hour < 18 ? 'İyi günler' : 'İyi akşamlar';
+  var dateStr = new Date().toLocaleDateString('tr-TR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  // Kısayol kartları
+  var ksHtml = '';
+  if (KISAYOLLAR.length) {
+    ksHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px">';
+    KISAYOLLAR.slice(0,4).forEach(function(k) {
+      ksHtml += '<a href="' + (k.url||'#') + '" target="_blank" rel="noopener" style="text-decoration:none">'
+        + '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 16px;cursor:pointer;transition:all 0.2s;display:flex;flex-direction:column;gap:8px;align-items:flex-start" '
+        + 'onmouseover="this.style.borderColor=\'var(--red)\';this.style.transform=\'translateY(-2px)\'" '
+        + 'onmouseout="this.style.borderColor=\'var(--border)\';this.style.transform=\'\'">'
+        + '<div style="font-size:26px">' + (k.icon||'🔗') + '</div>'
+        + '<div style="font-size:13px;font-weight:700;color:var(--text)">' + (k.title||'') + '</div>'
+        + '<div style="font-size:11px;color:var(--muted)">' + (k.desc||'') + '</div>'
+        + '</div></a>';
+    });
+    ksHtml += '</div>';
+  } else {
+    ksHtml = '<div style="background:var(--card);border:1px dashed var(--border);border-radius:10px;padding:20px;text-align:center;color:var(--muted);font-size:13px;margin-bottom:24px">Kısayollar henüz eklenmedi. Yönetim Paneli → Kısayollar.</div>';
+  }
+
+  // Hava durumu bölümü
+  var weatherHtml = '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">'
+    + '<div style="font-size:13px;font-weight:700">🌤️ Hava Durumu</div>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<input id="home-city-input" placeholder="Şehir girin..." value="' + HOME_CITY + '" '
+    + 'style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;font-family:inherit;width:140px" '
+    + 'onkeydown="if(event.key===\'Enter\')homeWeatherSearch()">'
+    + '<button onclick="homeWeatherSearch()" style="padding:6px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">Ara</button>'
+    + '</div></div>'
+    + '<div id="home-weather-content">';
+
+  if (HOME_WEATHER && HOME_WEATHER.daily) {
+    weatherHtml += homeWeatherRender(HOME_WEATHER);
+  } else {
+    weatherHtml += '<div style="color:var(--muted);font-size:12px;padding:8px 0">Şehir girerek hava durumunu görüntüleyin.</div>';
+  }
+  weatherHtml += '</div></div>';
+
+  // Döviz & Borsa
+  var finHtml = '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:12px">📈 Piyasalar</div>'
+    + '<div id="home-fin-content" style="color:var(--muted);font-size:12px">Yükleniyor...</div>'
+    + '</div>';
+
+  document.getElementById('main-content').innerHTML =
+    '<div style="max-width:900px">'
+    // Karşılama
+    + '<div style="background:linear-gradient(135deg,var(--dark) 0%,rgba(30,58,95,0.8) 100%);border:1px solid var(--border);border-radius:12px;padding:24px 28px;margin-bottom:24px">'
+    + '<div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px">' + greeting + ', ' + (user.ad||'') + ' 👋</div>'
+    + '<div style="font-size:13px;color:var(--muted)">' + dateStr + '</div>'
+    + '</div>'
+    // Kısayollar
+    + '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Hızlı Erişim</div>'
+    + ksHtml
+    // Alt iki kolon
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
+    + '<div>' + finHtml + '</div>'
+    + '<div>' + weatherHtml + '</div>'
+    + '</div>'
+    + '</div>';
+
+  // Piyasa verisi yükle
+  homeLoadFinance();
+}
+
+async function homeWeatherSearch() {
+  var input = document.getElementById('home-city-input');
+  var city = input ? input.value.trim() : '';
+  if (!city) return;
+  HOME_CITY = city;
+  localStorage.setItem('home_city', city);
+  var el = document.getElementById('home-weather-content');
+  if (el) el.innerHTML = '<div style="color:var(--muted);font-size:12px">Yükleniyor...</div>';
+  var data = await fetchWeather(city);
+  HOME_WEATHER = data;
+  if (el) el.innerHTML = data ? homeWeatherRender(data) : '<div style="color:var(--accent);font-size:12px">Şehir bulunamadı.</div>';
+}
+
+function homeWeatherRender(data) {
+  var daily = data.daily;
+  var html = '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">';
+  for (var i = 0; i < 7; i++) {
+    var date = new Date(daily.time[i]);
+    var dayLabel = i === 0 ? 'Bugün' : TR_DAYS[date.getDay()];
+    var icon = weatherIcon(daily.weathercode[i]);
+    var max = Math.round(daily.temperature_2m_max[i]);
+    var min = Math.round(daily.temperature_2m_min[i]);
+    var isToday = i === 0;
+    html += '<div style="flex:1;min-width:60px;text-align:center;background:' + (isToday?'rgba(29,78,216,0.1)':'var(--dark)') + ';border:1px solid ' + (isToday?'var(--blue)':'var(--border)') + ';border-radius:8px;padding:8px 4px">'
+      + '<div style="font-size:9px;color:var(--muted);font-weight:600;margin-bottom:4px">' + dayLabel + '</div>'
+      + '<div style="font-size:22px;margin-bottom:4px">' + icon + '</div>'
+      + '<div style="font-size:12px;font-weight:700;color:var(--text)">' + max + '°</div>'
+      + '<div style="font-size:10px;color:var(--muted)">' + min + '°</div>'
+      + '</div>';
+  }
+  html += '</div>';
+  html += '<div style="font-size:10px;color:var(--muted);margin-top:6px">📍 ' + data.city + ' · Open-Meteo</div>';
+  return html;
+}
+
+async function homeLoadFinance() {
+  var el = document.getElementById('home-fin-content');
+  if (!el) return;
+  try {
+    // Yahoo Finance proxy üzerinden döviz
+    var [usdRes, eurRes, bistRes] = await Promise.all([
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDTRY%3DX?interval=1d&range=1d'),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/EURTRY%3DX?interval=1d&range=1d'),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EXU100?interval=1d&range=1d'),
+    ]);
+    var [usdData, eurData, bistData] = await Promise.all([usdRes.json(), eurRes.json(), bistRes.json()]);
+
+    function getPrice(d) {
+      try { return d.chart.result[0].meta.regularMarketPrice; } catch(e) { return null; }
+    }
+    function getChange(d) {
+      try {
+        var m = d.chart.result[0].meta;
+        return ((m.regularMarketPrice - m.chartPreviousClose) / m.chartPreviousClose * 100);
+      } catch(e) { return null; }
+    }
+    function fmtChange(c) {
+      if (c === null) return '';
+      var col = c >= 0 ? 'var(--green)' : 'var(--accent)';
+      return '<span style="color:' + col + ';font-size:11px">' + (c >= 0 ? '▲' : '▼') + Math.abs(c).toFixed(2) + '%</span>';
+    }
+
+    var usd = getPrice(usdData), usdC = getChange(usdData);
+    var eur = getPrice(eurData), eurC = getChange(eurData);
+    var bist = getPrice(bistData), bistC = getChange(bistData);
+
+    var rows = [
+      { label: '🇺🇸 USD/TRY', val: usd ? usd.toFixed(2) : '—', chg: fmtChange(usdC) },
+      { label: '🇪🇺 EUR/TRY', val: eur ? eur.toFixed(2) : '—', chg: fmtChange(eurC) },
+      { label: '📊 BIST 100', val: bist ? Math.round(bist).toLocaleString('tr-TR') : '—', chg: fmtChange(bistC) },
+    ];
+
+    el.innerHTML = rows.map(function(r) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+        + '<span style="font-size:12px;color:var(--muted)">' + r.label + '</span>'
+        + '<div style="text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text)">' + r.val + '</div>' + r.chg + '</div>'
+        + '</div>';
+    }).join('') + '<div style="font-size:10px;color:var(--muted);margin-top:8px">Yahoo Finance · Anlık veriler</div>';
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Piyasa verisi yüklenemedi.</div>';
+  }
+}
+
+// ── Admin: Kısayollar Sekmesi ────────────────────────────────
+function adminRenderKisayollar(c) {
+  var ks = KISAYOLLAR.length ? JSON.parse(JSON.stringify(KISAYOLLAR)) : [{icon:'',title:'',desc:'',url:''},{icon:'',title:'',desc:'',url:''},{icon:'',title:'',desc:'',url:''},{icon:'',title:'',desc:'',url:''}];
+  while (ks.length < 4) ks.push({icon:'',title:'',desc:'',url:''});
+
+  var rows = ks.slice(0,4).map(function(k, i) {
+    return '<div style="background:var(--dark);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px">'
+      + '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px">Kısayol ' + (i+1) + '</div>'
+      + '<div style="display:grid;grid-template-columns:60px 1fr 1fr;gap:10px;margin-bottom:8px">'
+      + '<div><label style="font-size:11px;color:var(--muted)">İkon</label><input id="ks-icon-'+i+'" value="'+( k.icon||'')+'" placeholder="🔗" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:6px;font-size:18px;text-align:center;font-family:inherit"></div>'
+      + '<div><label style="font-size:11px;color:var(--muted)">Başlık</label><input id="ks-title-'+i+'" value="'+(k.title||'')+'" placeholder="Örn: Honda TR" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+      + '<div><label style="font-size:11px;color:var(--muted)">Açıklama</label><input id="ks-desc-'+i+'" value="'+(k.desc||'')+'" placeholder="Kısa açıklama" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+      + '</div>'
+      + '<div><label style="font-size:11px;color:var(--muted)">Web Adresi (URL)</label><input id="ks-url-'+i+'" value="'+(k.url||'')+'" placeholder="https://..." style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box"></div>'
+      + '</div>';
+  }).join('');
+
+  c.innerHTML = '<div style="max-width:700px">'
+    + '<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Ana sayfada gösterilecek en fazla 4 kısayol link tanımlayın.</div>'
+    + rows
+    + '<button onclick="adminSaveKisayollar()" style="padding:10px 24px;background:var(--red);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:8px">💾 Kaydet</button>'
+    + '</div>';
+}
+
+async function adminSaveKisayollar() {
+  var data = [];
+  for (var i = 0; i < 4; i++) {
+    var title = (document.getElementById('ks-title-'+i)||{}).value||'';
+    var url   = (document.getElementById('ks-url-'+i)||{}).value||'';
+    if (title || url) {
+      data.push({
+        icon:  (document.getElementById('ks-icon-'+i)||{}).value||'🔗',
+        title: title,
+        desc:  (document.getElementById('ks-desc-'+i)||{}).value||'',
+        url:   url,
+      });
+    }
+  }
+  await kisayollarSave(data);
+  toast('✅ Kısayollar kaydedildi!', 'green');
+}
+
 // ============================================================
 // INIT
 // ============================================================
