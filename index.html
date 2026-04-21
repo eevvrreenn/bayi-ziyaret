@@ -454,6 +454,7 @@
   .pp-chart-container { padding: 18px; }
   .pp-group-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
   .pp-mobile-select { display: none; width: 100%; margin-bottom: 12px; }
+  .pp-mobile-year-bar { display: none; }
   .pp-import-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; align-items: center; justify-content: center; }
   .pp-import-overlay.visible { display: flex; }
   .pp-import-modal { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; width: 400px; max-width: 90vw; }
@@ -471,6 +472,7 @@
   @media (max-width: 768px) {
     .pp-sidebar { display: none; }
     .pp-mobile-select { display: block; }
+    .pp-mobile-year-bar { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
     .pp-layout { flex-direction: column; height: auto; overflow: visible; }
     .pp-main { padding: 12px; overflow: visible; }
     .pp-kpi-row { grid-template-columns: repeat(2,1fr); }
@@ -763,6 +765,30 @@ let BAYILER = [
 let MUDURLER = [...new Set(BAYILER.map(b=>b.mudur))]; // başlangıçta BAYILER'den, sonra getMudurListesi() ile güncellenir
 
 // Müdür listesini her zaman USERS'dan türet (BAYILER'den bağımsız)
+function applyNavPermissions() {
+  if (!currentUser) return;
+  // page id -> nav buton data-page veya onclick içeriğiyle eşleştir
+  const allNavBtns = [
+    ...document.querySelectorAll('.nav-btn'),
+    ...document.querySelectorAll('.drawer-nav-btn'),
+    ...document.querySelectorAll('.bottom-nav-btn'),
+  ];
+  allNavBtns.forEach(btn => {
+    // data-page varsa kullan, yoksa onclick'ten çıkar
+    let page = btn.dataset.page;
+    if (!page) {
+      const m = (btn.getAttribute('onclick')||'').match(/showPage\('([^']+)'\)/);
+      if (m) page = m[1];
+    }
+    if (!page || page === 'anasayfa') return; // anasayfa her zaman görünür
+    if (page === 'admin-panel') {
+      btn.style.display = currentUser.role === 'admin' ? '' : 'none';
+      return;
+    }
+    btn.style.display = hasPermission(page) ? '' : 'none';
+  });
+}
+
 function getMudurListesi() {
   var aktifUsers = ADMIN_USERS_RT || USERS;
   var fromUsers = aktifUsers
@@ -777,7 +803,8 @@ function getMudurListesi() {
   return liste;
 }
 
-const TEST_MODELLER = ["PCX-125","SH125","CB125F","CL250 E-Clutch","Forza250","ADV350","CBR500R","CB650R","NC750X DCT","X-ADV"];
+const TEST_MODELLER_DEFAULT = ["PCX-125","SH125","CB125F","CL250 E-Clutch","Forza250","ADV350","CBR500R","CB650R","NC750X DCT","X-ADV"];
+let TEST_MODELLER = [...TEST_MODELLER_DEFAULT];
 
 let raporlar = [];
 let selectedMudur = MUDURLER[0]; // login sonrası getMudurListesi() ile güncellenir
@@ -1125,7 +1152,8 @@ function nextRaporNo() {
 // SIDEBAR
 // ============================================================
 function renderSidebar(isAdmin) {
-  const list = (isAdmin !== undefined ? isAdmin : currentUser?.role==='admin') ? MUDURLER : [selectedMudur];
+  const isSuperUser = isAdmin !== undefined ? isAdmin : ['admin','satis_muduru'].includes(currentUser?.role);
+  const list = isSuperUser ? MUDURLER : [selectedMudur];
   const html = list.map(m => {
     const cnt = raporlar.filter(r=>r.bolgeMusduru===m).length;
     return `<div class="mudur-item ${m===selectedMudur?'active':''}" onclick="selectMudur('${m}')">
@@ -1190,6 +1218,21 @@ function updateNavActive(page) {
 }
 function showPage(page) {
   if (currentPage === 'yeni-rapor' && page !== 'yeni-rapor') { saveDraft(); stopDraftTimer(); }
+
+  // Yetki kontrolü (admin-panel her zaman admin'e açık, anasayfa herkese)
+  if (page !== 'anasayfa' && page !== 'admin-panel' && !hasPermission(page)) {
+    document.getElementById('main-content').innerHTML =
+      '<div class="empty-state" style="padding:60px 20px">'
+      + '<div style="font-size:48px;margin-bottom:16px">🚫</div>'
+      + '<div style="font-size:18px;font-weight:700;margin-bottom:8px">Erişim Yetkiniz Yok</div>'
+      + '<div style="font-size:13px;color:var(--muted)">Bu sayfaya erişim yetkiniz bulunmuyor.<br>Yöneticinizle iletişime geçin.</div>'
+      + '</div>';
+    currentPage = page;
+    sessionStorage.setItem('bz_page', page);
+    updateNavActive(page);
+    return;
+  }
+
   currentPage = page;
   sessionStorage.setItem('bz_page', page); // F5 için kaydet
   updateNavActive(page);
@@ -1208,7 +1251,10 @@ function showPage(page) {
 // YENİ RAPOR
 // ============================================================
 function renderYeniRapor(prefill={}) {
-  const bayilerForMudur = BAYILER.filter(b=>b.mudur===selectedMudur);
+  const isSuperUser = ['admin','satis_muduru'].includes(currentUser?.role);
+  const bayilerForMudur = isSuperUser
+    ? (ADMIN_BAYILER_RT || BAYILER).filter(b => b.mudur === selectedMudur)
+    : BAYILER.filter(b => b.mudur === selectedMudur);
   const raporNo = prefill.raporNo || nextRaporNo();
   const today = new Date().toISOString().split('T')[0];
 
@@ -1326,7 +1372,7 @@ function renderYeniRapor(prefill={}) {
     <table class="data-table">
       <thead><tr><th>Personel</th><th>Mevcut</th><th>Hedef</th><th>Sapma</th><th>Notlar</th></tr></thead>
       <tbody>
-        ${['Satış Danışmanı','Satış Şefi','Satış Müdürü','Resepsiyon Görevlisi','Müşteri İlişkiler Personeli','Teslimat Görevlisi','Diğer'].map((p,i)=>`
+        ${PERSONEL_TIPLER.map((p,i)=>`
         <tr>
           <td>${p}</td>
           <td><input type="number" id="pr-m-${i}" value="${prefill.personel?.[i]?.mevcut||''}" style="width:70px;padding:4px;background:var(--dark);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px" oninput="calcPersonelSapma(${i})"></td>
@@ -1388,8 +1434,7 @@ function renderYeniRapor(prefill={}) {
 }
 
 // Tüm performans göstergeleri — Excel raporu ile birebir eşleştirildi
-const PERF_ROWS = [
-  // ── GEÇEN AY ──────────────────────────────────────────────
+const PERF_ROWS_DEFAULT = [
   { label: 'Geçen Ay Perakende Satışı',               grup: 'Geçen Ay', tip: 'sayi' },
   { label: 'Geçen Ay Toptan Satışı',                  grup: 'Geçen Ay', tip: 'sayi' },
   { label: 'Geçen Ay Fırsat Giriş Durumu',            grup: 'Geçen Ay', tip: 'sayi' },
@@ -1398,26 +1443,32 @@ const PERF_ROWS = [
   { label: 'Geçen Ay Etkinlik Sonucu – Ziyaretçi',   grup: 'Geçen Ay', tip: 'sayi' },
   { label: 'Geçen Ay Etkinlik Sonucu – Satış Adedi', grup: 'Geçen Ay', tip: 'sayi' },
   { label: 'Geçen Ay DBS Limit Değerlendirme',        grup: 'Geçen Ay', tip: 'metin' },
-  // ── PAZAR PAYI ────────────────────────────────────────────
   { label: 'TÜİK İl Pazar Payı (Geçen Ay)',           grup: 'Pazar Payı', tip: 'oran' },
   { label: 'TÜİK İl Pazar Payı (12 Aylık)',           grup: 'Pazar Payı', tip: 'oran' },
   { label: 'Honda Pazar Payı (Geçen Ay)',              grup: 'Pazar Payı', tip: 'oran' },
   { label: 'Honda Pazar Payı (12 Aylık)',              grup: 'Pazar Payı', tip: 'oran' },
-  // ── BU AY ─────────────────────────────────────────────────
-  // Sayısal alanlar — manuel giriş
   { label: 'Bu Ay Perakende Satışı (Pace/Hedef)',     grup: 'Bu Ay', tip: 'sayi' },
   { label: 'Bu Ay Toptan Satışı',                     grup: 'Bu Ay', tip: 'sayi' },
   { label: 'Bu Ay Fırsat Giriş Durumu',               grup: 'Bu Ay', tip: 'sayi' },
   { label: 'Bu Ay Test Sürüşü Adedi',                 grup: 'Bu Ay', tip: 'sayi' },
   { label: 'Bu Ay Showroom Ziyaret Adedi (RVL)',       grup: 'Bu Ay', tip: 'sayi' },
-  // Oran alanları — Gerçekleşen otomatik hesaplanır (yukarıdaki sayısal değerlerden)
-  // Fırsat/Showroom = Fırsat Giriş / Showroom Ziyaret * 100
   { label: 'Bu Ay Fırsat/Showroom Ziyaret Oranı',     grup: 'Bu Ay', tip: 'oran', formul: 'f_showroom' },
-  // Perakende/Fırsat = Perakende / Fırsat * 100
   { label: 'Bu Ay Perakende/Fırsat Oranı',            grup: 'Bu Ay', tip: 'oran', formul: 'p_firsat' },
-  // Test/Fırsat = Test Sürüşü / Fırsat * 100
   { label: 'Bu Ay Test Sürüşü/Fırsat Oranı',          grup: 'Bu Ay', tip: 'oran', formul: 't_firsat' },
 ];
+let PERF_ROWS = JSON.parse(JSON.stringify(PERF_ROWS_DEFAULT));
+
+const HK_ITEMS_DEFAULT = [
+  'Genel Showroom Ortam Temizliği','Danışman Kıyafetleri','Danışman İsimlikler',
+  'Spek Stand Kullanımı','Model Plakalıkları Kullanımı','Hanger Kullanımı',
+  'Müşteri İkramları (İçecek)','Müşteri İkramları (Yiyecek)'
+];
+let HK_ITEMS = [...HK_ITEMS_DEFAULT];
+
+const PERSONEL_TIPLER_DEFAULT = ['Satış Danışmanı','Satış Şefi','Satış Müdürü','Resepsiyon Görevlisi','Müşteri İlişkiler Personeli','Teslimat Görevlisi','Diğer'];
+let PERSONEL_TIPLER = [...PERSONEL_TIPLER_DEFAULT];
+
+const ADMIN_CFG_KEY_FORM = 'form_config';
 
 function renderPerfRows(pf) {
   let lastGrup = null;
@@ -1551,11 +1602,7 @@ function calcSapma(i, tip) {
 }
 
 function renderHizmetKalite(pf) {
-  const items = [
-    'Genel Showroom Ortam Temizliği','Danışman Kıyafetleri','Danışman İsimlikler',
-    'Spek Stand Kullanımı','Model Plakalıkları Kullanımı','Hanger Kullanımı',
-    'Müşteri İkramları (İçecek)','Müşteri İkramları (Yiyecek)'
-  ];
+  const items = HK_ITEMS;
   return `<table class="data-table"><thead><tr><th>Kriter</th><th>Durum</th><th>Notlar</th></tr></thead><tbody>
     ${items.map((k,i)=>`<tr>
       <td>${k}</td>
@@ -1880,7 +1927,7 @@ function clearForm() { fotograflar = []; const el = document.getElementById('f-p
 // DASHBOARD
 // ============================================================
 function renderDashboard() {
-  const bayilerForMudur = BAYILER.filter(b=>b.mudur===selectedMudur);
+  const bayilerForMudur = (ADMIN_BAYILER_RT || BAYILER).filter(b=>b.mudur===selectedMudur);
   document.getElementById('main-content').innerHTML = `
   <div class="page-title">📊 Bayi Dashboard</div>
   <div class="page-sub">Bölge Müdürü: <strong>${selectedMudur}</strong></div>
@@ -2806,9 +2853,9 @@ async function doLogin() {
   document.getElementById('login-error').classList.remove('show');
   currentUser = user;
 
-  // Admin görür hepsini, müdür sadece kendisini
+  // Admin ve Satış Müdürü hepsini görür, diğerleri sadece kendisini
   getMudurListesi(); // MUDURLER'i güncelle
-  if (user.role === 'admin') {
+  if (['admin','satis_muduru'].includes(user.role)) {
     selectedMudur = MUDURLER[0];
   } else {
     selectedMudur = user.mudur;
@@ -2817,7 +2864,7 @@ async function doLogin() {
   // Header güncelle
   const initials = user.ad.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
-  document.getElementById('user-display').textContent = user.ad + (user.role==='admin' ? ' (Admin)' : '');
+  document.getElementById('user-display').textContent = user.ad + (user.role==='admin' ? ' (Admin)' : user.role==='satis_muduru' ? ' (Satış Müdürü)' : '');
 
   // Supabase'den performans + FC verilerini yükle (arka planda)
   ppLoadPerfFromDb().then(function() {
@@ -2835,8 +2882,11 @@ async function doLogin() {
     el.style.display = user.role === 'admin' ? '' : 'none';
   });
 
+  // Nav butonlarını izne göre göster/gizle (login tamamlandıktan sonra)
+  setTimeout(function() { applyNavPermissions(); }, 50);
+
   // Sidebar: admin tüm müdürleri görür
-  renderSidebar(user.role === 'admin');
+  renderSidebar(['admin','satis_muduru'].includes(user.role));
   // Taslak kontrolü
   // F5 sonrası sayfayı restore et, yoksa ana sayfa
   const savedPage = sessionStorage.getItem('bz_page') || 'anasayfa';
@@ -3198,6 +3248,7 @@ function renderPerfPanel() {
           <option value="">-- Bayi Seçin --</option>
           ${dealerOptions}
         </select>
+        <div class="pp-mobile-year-bar" id="ppMobileYearBar">${yearBtns}</div>
         <div id="ppContent">
           <div class="pp-welcome">
             <div class="pp-welcome-icon">🏍</div>
@@ -5867,6 +5918,41 @@ function etkCloseMod() {
 // Supabase'deki config tablosu anahtarları
 const ADMIN_CFG_KEY_USERS  = 'admin_users';
 const ADMIN_CFG_KEY_BAYILER = 'admin_bayiler';
+const ADMIN_CFG_KEY_PERMS   = 'admin_permissions';
+
+// ── Sayfa izin tanımları ──────────────────────────────────────
+const PERM_PAGES = [
+  { id: 'anasayfa',    label: '🏠 Ana Sayfa'         },
+  { id: 'yeni-rapor',  label: '📝 Yeni Rapor'        },
+  { id: 'dashboard',   label: '📊 Bayi Dashboard'    },
+  { id: 'takvim',      label: '📅 Ziyaret Takvimi'   },
+  { id: 'tum-raporlar',label: '📋 Tüm Raporlar'      },
+  { id: 'perf-panel',  label: '🏆 Performans Paneli' },
+  { id: 'etkinlik',    label: '🎪 Etkinlik Yönetimi' },
+  { id: 'fc',          label: '📈 Retail Forecast'   },
+  { id: 'admin-panel', label: '⚙️ Yönetim Paneli'    },
+];
+
+// Varsayılan izinler — her rol hangi sayfalara erişebilir
+const PERM_DEFAULTS = {
+  mudur:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc'],
+  satis_muduru: ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc'],
+  direktor:     ['anasayfa','perf-panel','etkinlik','fc'],
+  admin:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc','admin-panel'],
+};
+
+let ADMIN_PERMS_RT = null; // Supabase'den yüklenir, null ise PERM_DEFAULTS kullanılır
+
+function getPerms(role) {
+  const src = ADMIN_PERMS_RT || PERM_DEFAULTS;
+  return src[role] || PERM_DEFAULTS[role] || [];
+}
+
+function hasPermission(page) {
+  if (!currentUser) return false;
+  if (currentUser.role === 'admin') return true; // admin her zaman erişir
+  return getPerms(currentUser.role).includes(page);
+}
 
 // Çalışma zamanında değiştirilebilir kopyalar
 let ADMIN_USERS_RT   = null; // null = henüz yüklenmedi
@@ -5875,15 +5961,25 @@ let ADMIN_BAYILER_RT = null;
 // ── Supabase'den config yükle (login sırasında çağrılır) ─────
 async function adminLoadConfig() {
   try {
-    const rows = await sbFetch(`pp_kv_store?key=in.(${ADMIN_CFG_KEY_USERS},${ADMIN_CFG_KEY_BAYILER})&select=key,value`);
+    const rows = await sbFetch(`pp_kv_store?key=in.(${ADMIN_CFG_KEY_USERS},${ADMIN_CFG_KEY_BAYILER},${ADMIN_CFG_KEY_PERMS},${ADMIN_CFG_KEY_FORM})&select=key,value`);
     rows.forEach(r => {
       if (r.key === ADMIN_CFG_KEY_USERS  && r.value) ADMIN_USERS_RT   = JSON.parse(r.value);
       if (r.key === ADMIN_CFG_KEY_BAYILER && r.value) ADMIN_BAYILER_RT = JSON.parse(r.value);
+      if (r.key === ADMIN_CFG_KEY_PERMS  && r.value) ADMIN_PERMS_RT   = JSON.parse(r.value);
+      if (r.key === ADMIN_CFG_KEY_FORM   && r.value) applyFormConfig(JSON.parse(r.value));
     });
     // Uygulamaya yansıt
     if (ADMIN_USERS_RT)   adminApplyUsers(ADMIN_USERS_RT);
     if (ADMIN_BAYILER_RT) adminApplyBayiler(ADMIN_BAYILER_RT);
   } catch(e) { /* Supabase erişilemez — kod içindeki sabit veri kullanılır */ }
+}
+
+function applyFormConfig(cfg) {
+  if (!cfg) return;
+  if (cfg.perf_rows  && cfg.perf_rows.length)   PERF_ROWS       = cfg.perf_rows;
+  if (cfg.hk_items   && cfg.hk_items.length)    HK_ITEMS        = cfg.hk_items;
+  if (cfg.test_modeller && cfg.test_modeller.length) TEST_MODELLER = cfg.test_modeller;
+  if (cfg.personel_tipler && cfg.personel_tipler.length) PERSONEL_TIPLER = cfg.personel_tipler;
 }
 
 function adminApplyUsers(list) {
@@ -5958,6 +6054,8 @@ function _renderAdminPanelInner() {
     <button class="admin-tab-btn ${adminTab==='users'?'active':''}" onclick="adminSetTab('users')">👤 Kullanıcılar</button>
     <button class="admin-tab-btn ${adminTab==='bayiler'?'active':''}" onclick="adminSetTab('bayiler')">🏍️ Bayiler</button>
     <button class="admin-tab-btn ${adminTab==='mudurler'?'active':''}" onclick="adminSetTab('mudurler')">📋 Müdür Özeti</button>
+    <button class="admin-tab-btn ${adminTab==='yetkiler'?'active':''}" onclick="adminSetTab('yetkiler')">🔐 Yetkiler</button>
+    <button class="admin-tab-btn ${adminTab==='form'?'active':''}" onclick="adminSetTab('form')">📝 Form Yapılandırması</button>
     <button class="admin-tab-btn ${adminTab==='kisayollar'?'active':''}" onclick="adminSetTab('kisayollar')">🔗 Kısayollar</button>
   </div>
   <div id="admin-tab-content"></div>`;
@@ -5984,6 +6082,8 @@ function adminRenderTab() {
   if (adminTab === 'users')      adminRenderUsers(c);
   if (adminTab === 'bayiler')    adminRenderBayiler(c);
   if (adminTab === 'mudurler')   adminRenderMudurOzet(c);
+  if (adminTab === 'yetkiler')   adminRenderYetkiler(c);
+  if (adminTab === 'form')       adminRenderFormConfig(c);
   if (adminTab === 'kisayollar') adminRenderKisayollar(c);
 }
 
@@ -8385,6 +8485,227 @@ async function submitForgotPassword() {
     msgEl.style.background = 'rgba(220,38,38,0.1)';
     msgEl.style.color = 'var(--accent)';
     msgEl.textContent = '⚠️ Bağlantı hatası, tekrar deneyin.';
+  }
+}
+
+function adminRenderYetkiler(c) {
+  const perms = ADMIN_PERMS_RT ? JSON.parse(JSON.stringify(ADMIN_PERMS_RT)) : JSON.parse(JSON.stringify(PERM_DEFAULTS));
+  const ROLES = [
+    { id: 'mudur',        label: 'Bölge Müdürü',  color: '#1D4ED8' },
+    { id: 'satis_muduru', label: 'Satış Müdürü',  color: '#15803D' },
+    { id: 'direktor',     label: 'Direktör',       color: '#7c3aed' },
+  ];
+  let html = '<div class="admin-card"><div style="font-size:14px;font-weight:700;margin-bottom:4px">Sayfa Erişim Yetkileri</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Admin her zaman tüm sayfalara erişir. Diğer roller için erişim izinlerini aşağıdan yönetin.</div>'
+    + '<div style="overflow-x:auto"><table class="admin-tbl" style="min-width:500px">'
+    + '<thead><tr><th style="width:200px">Sayfa</th>'
+    + ROLES.map(r => `<th style="text-align:center"><span style="display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${r.color}18;color:${r.color}">${r.label}</span></th>`).join('')
+    + '</tr></thead><tbody>';
+
+  PERM_PAGES.forEach(page => {
+    if (page.id === 'admin-panel') return; // admin-panel sadece admin'e, değiştirilemez
+    html += `<tr><td style="font-weight:600;font-size:13px">${page.label}</td>`;
+    ROLES.forEach(role => {
+      const hasPerm = (perms[role.id] || []).includes(page.id);
+      html += `<td style="text-align:center">
+        <label style="display:inline-flex;align-items:center;cursor:pointer;gap:6px">
+          <input type="checkbox" id="perm-${role.id}-${page.id}" ${hasPerm ? 'checked' : ''}
+            style="width:16px;height:16px;cursor:pointer;accent-color:${role.color}">
+        </label>
+      </td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>'
+    + '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">'
+    + '<button class="admin-save-btn" onclick="adminSaveYetkiler()">💾 Kaydet</button>'
+    + '<button class="admin-save-btn" style="background:var(--mid)" onclick="adminResetYetkiler()">↺ Varsayılana Dön</button>'
+    + '<span id="perm-status" style="font-size:11px;color:var(--muted)"></span>'
+    + '</div></div>';
+
+  c.innerHTML = html;
+}
+
+async function adminSaveYetkiler() {
+  const ROLES = ['mudur','satis_muduru','direktor'];
+  const newPerms = {};
+
+  // Admin her zaman her şeye erişir
+  newPerms['admin'] = PERM_PAGES.map(p => p.id);
+
+  ROLES.forEach(role => {
+    newPerms[role] = PERM_PAGES
+      .filter(page => page.id !== 'admin-panel')
+      .filter(page => {
+        const el = document.getElementById(`perm-${role}-${page.id}`);
+        return el && el.checked;
+      })
+      .map(page => page.id);
+    // anasayfa her zaman ekli olsun
+    if (!newPerms[role].includes('anasayfa')) newPerms[role].unshift('anasayfa');
+  });
+
+  const ok = await adminSaveConfig(ADMIN_CFG_KEY_PERMS, newPerms);
+  if (ok) {
+    ADMIN_PERMS_RT = newPerms;
+    const st = document.getElementById('perm-status');
+    if (st) { st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR'); st.style.color = 'var(--green)'; }
+    toast('✅ Yetkiler güncellendi!', 'green');
+  } else {
+    toast('⚠️ Kaydedilemedi', 'red');
+  }
+}
+
+async function adminResetYetkiler() {
+  if (!confirm('Tüm yetkiler varsayılan değerlere dönecek. Emin misiniz?')) return;
+  const ok = await adminSaveConfig(ADMIN_CFG_KEY_PERMS, PERM_DEFAULTS);
+  if (ok) {
+    ADMIN_PERMS_RT = JSON.parse(JSON.stringify(PERM_DEFAULTS));
+    adminRenderYetkiler(document.getElementById('admin-tab-content'));
+    toast('✅ Yetkiler sıfırlandı', 'green');
+  }
+}
+
+function adminRenderFormConfig(c) {
+  function listEditor(id, title, desc, items) {
+    const rows = items.map((item, i) => {
+      const v = typeof item === 'string' ? item : item.label;
+      const tip = typeof item === 'object' ? item.tip : null;
+      const grup = typeof item === 'object' ? item.grup : null;
+      const formul = typeof item === 'object' ? item.formul : null;
+      return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px" id="${id}-row-${i}">
+        <input value="${v.replace(/"/g,'&quot;')}" id="${id}-val-${i}"
+          style="flex:1;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px;font-family:inherit"
+          ${tip ? `data-tip="${tip}"` : ''}
+          ${grup ? `data-grup="${grup}"` : ''}
+          ${formul ? `data-formul="${formul}"` : ''}>
+        ${tip ? `<select id="${id}-tip-${i}" style="background:var(--mid);border:1px solid var(--border);color:var(--muted);padding:7px 8px;border-radius:6px;font-size:12px;font-family:inherit">
+          <option value="sayi" ${tip==='sayi'?'selected':''}>Sayı</option>
+          <option value="oran" ${tip==='oran'?'selected':''}>Oran</option>
+          <option value="metin" ${tip==='metin'?'selected':''}>Metin</option>
+        </select>` : ''}
+        <button onclick="adminFormDelRow('${id}',${i})" style="padding:6px 10px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.2);color:var(--accent);border-radius:6px;cursor:pointer;font-size:13px;font-family:inherit">✕</button>
+      </div>`;
+    }).join('');
+    return `<div class="admin-card" style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px">${title}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">${desc}</div>
+      <div id="${id}-list">${rows}</div>
+      <button onclick="adminFormAddRow('${id}','${typeof items[0]==='object'?'perf':'str'}')"
+        style="padding:6px 14px;background:rgba(29,78,216,0.08);border:1px solid rgba(29,78,216,0.2);color:var(--blue);border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;margin-top:4px">+ Satır Ekle</button>
+    </div>`;
+  }
+
+  c.innerHTML = `<div style="max-width:800px">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Yeni Rapor formundaki değişken bölümleri buradan yönetin. Değişiklikler kaydedildiğinde tüm kullanıcılara yansır.</div>
+    ${listEditor('fcfg-perf', '📊 Satış & Performans Satırları',
+      'Soru metni ve veri tipini düzenleyebilirsiniz. Satır ekleyip silebilirsiniz.', PERF_ROWS)}
+    <div style="background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 14px;margin-top:-10px;margin-bottom:16px;font-size:12px;color:var(--accent)">
+      ⚠️ <strong>Dikkat:</strong> <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:3px">f_showroom</code>, <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:3px">p_firsat</code> ve <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:3px">t_firsat</code> formül etiketli satırlar otomatik hesaplama yapar. Bu satırları <strong>silmeyin</strong>, aksi hâlde oran hesaplamaları çalışmaz.
+    </div>
+    ${listEditor('fcfg-hk', '🏠 Hizmet Kalitesi Kriterleri', 'Her satır bir değerlendirme kriteri.', HK_ITEMS)}
+    ${listEditor('fcfg-test', '🏍️ Test Araçları Modelleri',
+      'Model ekleyip çıkarabilirsiniz.', TEST_MODELLER)}
+    <div style="background:rgba(29,78,216,0.06);border:1px solid rgba(29,78,216,0.2);border-radius:8px;padding:10px 14px;margin-top:-10px;margin-bottom:16px;font-size:12px;color:var(--blue)">
+      ℹ️ <strong>Not:</strong> Sıralama Excel hedef dosyasındaki <strong>"Test Araclari Hedef"</strong> sekmesiyle birebir eşleşmelidir. Model ekler veya sırasını değiştirirseniz Excel şablonunu da güncelleyin.
+    </div>
+    ${listEditor('fcfg-pr', '👥 Personel Tipleri', 'Personel kategorilerini düzenleyebilirsiniz.', PERSONEL_TIPLER)}
+    <div style="background:rgba(29,78,216,0.06);border:1px solid rgba(29,78,216,0.2);border-radius:8px;padding:10px 14px;margin-top:-10px;margin-bottom:16px;font-size:12px;color:var(--blue)">
+      ℹ️ <strong>Not:</strong> Sıralama Excel hedef dosyasındaki <strong>"Personel Hedef"</strong> sekmesiyle birebir eşleşmelidir. Kategori ekler veya sırasını değiştirirseniz Excel şablonunu da güncelleyin.
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:8px">
+      <button onclick="adminSaveFormConfig()" style="padding:10px 24px;background:var(--red);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">💾 Kaydet</button>
+      <button onclick="adminResetFormConfig()" style="padding:10px 18px;background:var(--mid);border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit">↺ Varsayılana Dön</button>
+      <span id="fcfg-status" style="font-size:11px;color:var(--muted)"></span>
+    </div>
+  </div>`;
+}
+
+function adminFormDelRow(id, i) {
+  const row = document.getElementById(`${id}-row-${i}`);
+  if (row) row.remove();
+}
+
+function adminFormAddRow(id, type) {
+  const list = document.getElementById(`${id}-list`);
+  if (!list) return;
+  const count = list.querySelectorAll('[id^="'+id+'-row-"]').length;
+  const div = document.createElement('div');
+  div.id = `${id}-row-${count}`;
+  div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px';
+  if (type === 'perf') {
+    div.innerHTML = `<input value="" id="${id}-val-${count}" placeholder="Soru metni..."
+      style="flex:1;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px;font-family:inherit">
+      <select id="${id}-tip-${count}" style="background:var(--mid);border:1px solid var(--border);color:var(--muted);padding:7px 8px;border-radius:6px;font-size:12px;font-family:inherit">
+        <option value="sayi">Sayı</option><option value="oran">Oran</option><option value="metin">Metin</option>
+      </select>
+      <button onclick="adminFormDelRow('${id}',${count})" style="padding:6px 10px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.2);color:var(--accent);border-radius:6px;cursor:pointer;font-size:13px">✕</button>`;
+  } else {
+    div.innerHTML = `<input value="" id="${id}-val-${count}" placeholder="Yeni madde..."
+      style="flex:1;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px;font-family:inherit">
+      <button onclick="adminFormDelRow('${id}',${count})" style="padding:6px 10px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.2);color:var(--accent);border-radius:6px;cursor:pointer;font-size:13px">✕</button>`;
+  }
+  list.appendChild(div);
+}
+
+async function adminSaveFormConfig() {
+  function readList(id, type) {
+    const list = document.getElementById(`${id}-list`);
+    if (!list) return null;
+    const rows = list.querySelectorAll(`[id^="${id}-row-"]`);
+    const result = [];
+    rows.forEach((row, i) => {
+      const valEl = row.querySelector(`[id="${id}-val-${i}"]`) || row.querySelector('input');
+      if (!valEl || !valEl.value.trim()) return;
+      if (type === 'perf') {
+        const tipEl = row.querySelector('select');
+        const tip = tipEl ? tipEl.value : (valEl.dataset.tip || 'sayi');
+        const formul = valEl.dataset.formul || null;
+        // grup: mevcut veriyle eşleştir veya son grup
+        const existing = PERF_ROWS.find(r => r.label === valEl.value.trim());
+        const grup = existing ? existing.grup : (result.length > 0 ? result[result.length-1].grup : 'Geçen Ay');
+        const obj = { label: valEl.value.trim(), grup, tip };
+        if (formul) obj.formul = formul;
+        result.push(obj);
+      } else {
+        result.push(valEl.value.trim());
+      }
+    });
+    return result;
+  }
+
+  const cfg = {
+    perf_rows:       readList('fcfg-perf', 'perf'),
+    hk_items:        readList('fcfg-hk',   'str'),
+    test_modeller:   readList('fcfg-test', 'str'),
+    personel_tipler: readList('fcfg-pr',   'str'),
+  };
+
+  const ok = await adminSaveConfig(ADMIN_CFG_KEY_FORM, cfg);
+  if (ok) {
+    applyFormConfig(cfg);
+    const st = document.getElementById('fcfg-status');
+    if (st) { st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR'); st.style.color = 'var(--green)'; }
+    toast('✅ Form yapılandırması güncellendi!', 'green');
+  } else {
+    toast('⚠️ Kaydedilemedi', 'red');
+  }
+}
+
+async function adminResetFormConfig() {
+  if (!confirm('Form yapılandırması varsayılanlara dönecek. Emin misiniz?')) return;
+  PERF_ROWS       = JSON.parse(JSON.stringify(PERF_ROWS_DEFAULT));
+  HK_ITEMS        = [...HK_ITEMS_DEFAULT];
+  TEST_MODELLER   = [...TEST_MODELLER_DEFAULT];
+  PERSONEL_TIPLER = [...PERSONEL_TIPLER_DEFAULT];
+  const ok = await adminSaveConfig(ADMIN_CFG_KEY_FORM, {
+    perf_rows: PERF_ROWS, hk_items: HK_ITEMS,
+    test_modeller: TEST_MODELLER, personel_tipler: PERSONEL_TIPLER
+  });
+  if (ok) {
+    adminRenderFormConfig(document.getElementById('admin-tab-content'));
+    toast('✅ Varsayılanlara dönüldü', 'green');
   }
 }
 
