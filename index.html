@@ -8353,11 +8353,12 @@ async function homeLoadNews() {
   if (!el) return;
 
   // Birden fazla RSS2JSON endpoint + feed dene
+  var API_KEY = '4atpa4exi9tcbro3fytcdt172nxoer0p1qxjqwb2';
   var attempts = [
-    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.ntv.com.tr/son-dakika.rss') + '&count=6&api_key=', type: 'rss2json' },
-    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://feeds.bbci.co.uk/turkish/rss.xml') + '&count=6', type: 'rss2json' },
-    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.sabah.com.tr/rss/anasayfa.xml') + '&count=6', type: 'rss2json' },
-    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.hurriyet.com.tr/rss/anasayfa') + '&count=6', type: 'rss2json' },
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.ntv.com.tr/son-dakika.rss') + '&count=6&api_key=' + API_KEY },
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://feeds.bbci.co.uk/turkish/rss.xml') + '&count=6&api_key=' + API_KEY },
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.sabah.com.tr/rss/anasayfa.xml') + '&count=6&api_key=' + API_KEY },
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.hurriyet.com.tr/rss/anasayfa') + '&count=6&api_key=' + API_KEY },
   ];
 
   for (var i = 0; i < attempts.length; i++) {
@@ -8503,36 +8504,99 @@ function adminRenderYetkiler(c) {
     { id: 'satis_muduru', label: 'Satış Müdürü',  color: '#15803D' },
     { id: 'direktor',     label: 'Direktör',       color: '#7c3aed' },
   ];
-  let html = '<div class="admin-card"><div style="font-size:14px;font-weight:700;margin-bottom:4px">Sayfa Erişim Yetkileri</div>'
-    + '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Admin her zaman tüm sayfalara erişir. Diğer roller için erişim izinlerini aşağıdan yönetin.</div>'
-    + '<div style="overflow-x:auto"><table class="admin-tbl" style="min-width:500px">'
-    + '<thead><tr><th style="width:200px">Sayfa</th>'
-    + ROLES.map(r => `<th style="text-align:center"><span style="display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${r.color}18;color:${r.color}">${r.label}</span></th>`).join('')
-    + '</tr></thead><tbody>';
 
-  PERM_PAGES.forEach(page => {
-    if (page.id === 'admin-panel') return; // admin-panel sadece admin'e, değiştirilemez
-    html += `<tr><td style="font-weight:600;font-size:13px">${page.label}</td>`;
-    ROLES.forEach(role => {
-      const hasPerm = (perms[role.id] || []).includes(page.id);
-      html += `<td style="text-align:center">
-        <label style="display:inline-flex;align-items:center;cursor:pointer;gap:6px">
-          <input type="checkbox" id="perm-${role.id}-${page.id}" ${hasPerm ? 'checked' : ''}
-            style="width:16px;height:16px;cursor:pointer;accent-color:${role.color}">
-        </label>
-      </td>`;
-    });
-    html += '</tr>';
+  // Wrapper
+  c.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'admin-card';
+
+  // Başlık
+  card.innerHTML = '<div style="font-size:14px;font-weight:700;margin-bottom:4px">Sayfa Erişim Yetkileri</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Admin her zaman tüm sayfalara erişir. Diğer roller için erişim izinlerini aşağıdan yönetin.</div>';
+
+  // Tablo
+  const wrap = document.createElement('div');
+  wrap.style.overflowX = 'auto';
+  const table = document.createElement('table');
+  table.className = 'admin-tbl';
+  table.style.minWidth = '500px';
+
+  // Thead
+  const thead = document.createElement('thead');
+  const hRow = document.createElement('tr');
+  const thPage = document.createElement('th');
+  thPage.style.width = '200px';
+  thPage.textContent = 'Sayfa';
+  hRow.appendChild(thPage);
+  ROLES.forEach(function(r) {
+    const th = document.createElement('th');
+    th.style.textAlign = 'center';
+    th.innerHTML = `<span style="display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${r.color}18;color:${r.color}">${r.label}</span>`;
+    hRow.appendChild(th);
   });
+  thead.appendChild(hRow);
+  table.appendChild(thead);
 
-  html += '</tbody></table></div>'
-    + '<div style="margin-top:16px;display:flex;align-items:center;gap:12px">'
-    + '<button class="admin-save-btn" onclick="adminSaveYetkiler()">💾 Kaydet</button>'
-    + '<button class="admin-save-btn" style="background:var(--mid)" onclick="adminResetYetkiler()">↺ Varsayılana Dön</button>'
-    + '<span id="perm-status" style="font-size:11px;color:var(--muted)"></span>'
-    + '</div></div>';
+  // Tbody
+  const tbody = document.createElement('tbody');
+  PERM_PAGES.forEach(function(page) {
+    if (page.id === 'admin-panel') return;
+    const tr = document.createElement('tr');
 
-  c.innerHTML = html;
+    const tdLabel = document.createElement('td');
+    tdLabel.style.fontWeight = '600';
+    tdLabel.style.fontSize = '13px';
+    tdLabel.textContent = page.label;
+    tr.appendChild(tdLabel);
+
+    ROLES.forEach(function(role) {
+      const td = document.createElement('td');
+      td.style.textAlign = 'center';
+
+      const label = document.createElement('label');
+      label.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;width:100%;padding:8px 0';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.id = 'perm-' + role.id + '-' + page.id;
+      cb.style.cssText = 'width:18px;height:18px;cursor:pointer;accent-color:' + role.color;
+      cb.checked = (perms[role.id] || []).includes(page.id);
+
+      label.appendChild(cb);
+      td.appendChild(label);
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  card.appendChild(wrap);
+
+  // Butonlar
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'margin-top:16px;display:flex;align-items:center;gap:12px';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'admin-save-btn';
+  saveBtn.textContent = '💾 Kaydet';
+  saveBtn.onclick = adminSaveYetkiler;
+
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'admin-save-btn';
+  resetBtn.style.background = 'var(--mid)';
+  resetBtn.textContent = '↺ Varsayılana Dön';
+  resetBtn.onclick = adminResetYetkiler;
+
+  const status = document.createElement('span');
+  status.id = 'perm-status';
+  status.style.cssText = 'font-size:11px;color:var(--muted)';
+
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(resetBtn);
+  btnRow.appendChild(status);
+  card.appendChild(btnRow);
+  c.appendChild(card);
 }
 
 async function adminSaveYetkiler() {
