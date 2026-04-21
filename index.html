@@ -1469,7 +1469,7 @@ let HK_ITEMS = [...HK_ITEMS_DEFAULT];
 const PERSONEL_TIPLER_DEFAULT = ['Satış Danışmanı','Satış Şefi','Satış Müdürü','Resepsiyon Görevlisi','Müşteri İlişkiler Personeli','Teslimat Görevlisi','Diğer'];
 let PERSONEL_TIPLER = [...PERSONEL_TIPLER_DEFAULT];
 
-const ADMIN_CFG_KEY_FORM = 'form_config';
+var ADMIN_CFG_KEY_FORM = 'form_config';
 
 function renderPerfRows(pf) {
   let lastGrup = null;
@@ -5917,9 +5917,9 @@ function etkCloseMod() {
 // ============================================================
 
 // Supabase'deki config tablosu anahtarları
-const ADMIN_CFG_KEY_USERS  = 'admin_users';
-const ADMIN_CFG_KEY_BAYILER = 'admin_bayiler';
-const ADMIN_CFG_KEY_PERMS   = 'admin_permissions';
+var ADMIN_CFG_KEY_USERS   = 'admin_users';
+var ADMIN_CFG_KEY_BAYILER = 'admin_bayiler';
+var ADMIN_CFG_KEY_PERMS   = 'admin_permissions';
 
 // ── Sayfa izin tanımları ──────────────────────────────────────
 var PERM_PAGES = [
@@ -5944,7 +5944,7 @@ var PERM_DEFAULTS = {
 var ADMIN_PERMS_RT = null;
 
 function getPerms(role) {
-  const src = ADMIN_PERMS_RT || PERM_DEFAULTS;
+  var src = ADMIN_PERMS_RT || PERM_DEFAULTS;
   return src[role] || PERM_DEFAULTS[role] || [];
 }
 
@@ -5955,8 +5955,8 @@ function hasPermission(page) {
 }
 
 // Çalışma zamanında değiştirilebilir kopyalar
-let ADMIN_USERS_RT   = null; // null = henüz yüklenmedi
-let ADMIN_BAYILER_RT = null;
+var ADMIN_USERS_RT   = null; // null = henüz yüklenmedi
+var ADMIN_BAYILER_RT = null;
 
 // ── Supabase'den config yükle (login sırasında çağrılır) ─────
 async function adminLoadConfig() {
@@ -8559,17 +8559,31 @@ function adminRenderYetkiler(c) {
       const td = document.createElement('td');
       td.style.textAlign = 'center';
 
-      const label = document.createElement('label');
-      label.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;width:100%;padding:8px 0';
-
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.id = 'perm-' + role.id + '-' + page.id;
-      cb.style.cssText = 'width:18px;height:18px;cursor:pointer;accent-color:' + role.color;
       cb.checked = (perms[role.id] || []).includes(page.id);
+      cb.style.cssText = 'display:none';
 
-      label.appendChild(cb);
-      td.appendChild(label);
+      // Custom toggle görsel
+      const toggle = document.createElement('div');
+      toggle.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:36px;height:20px;border-radius:10px;cursor:pointer;transition:background 0.2s;position:relative;'
+        + (cb.checked ? 'background:' + role.color : 'background:var(--border)');
+
+      const knob = document.createElement('div');
+      knob.style.cssText = 'width:14px;height:14px;border-radius:50%;background:#fff;position:absolute;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);'
+        + (cb.checked ? 'left:19px' : 'left:3px');
+
+      toggle.appendChild(cb);
+      toggle.appendChild(knob);
+
+      toggle.addEventListener('click', function() {
+        cb.checked = !cb.checked;
+        toggle.style.background = cb.checked ? role.color : 'var(--border)';
+        knob.style.left = cb.checked ? '19px' : '3px';
+      });
+
+      td.appendChild(toggle);
       tr.appendChild(td);
     });
 
@@ -8625,13 +8639,15 @@ async function adminSaveYetkiler() {
   });
 
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_PERMS, newPerms);
+  // Başarılı olsun ya da olmasın bellekte uygula
+  ADMIN_PERMS_RT = newPerms;
+  applyNavPermissions();
   if (ok) {
-    ADMIN_PERMS_RT = newPerms;
     const st = document.getElementById('perm-status');
     if (st) { st.textContent = '✅ Kaydedildi — ' + new Date().toLocaleTimeString('tr-TR'); st.style.color = 'var(--green)'; }
     toast('✅ Yetkiler güncellendi!', 'green');
   } else {
-    toast('⚠️ Kaydedilemedi', 'red');
+    toast('⚠️ Supabase\'e kaydedilemedi ama oturum için uygulandı', 'yellow');
   }
 }
 
