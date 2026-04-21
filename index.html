@@ -1202,18 +1202,19 @@ function closeDrawer() {
 }
 
 function updateNavActive(page) {
-  // Desktop nav
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  const navMap = {'yeni-rapor':0,'dashboard':1,'takvim':2,'tum-raporlar':3,'perf-panel':4,'etkinlik':5,'fc':6};
-  const nb = document.querySelectorAll('.nav-btn')[navMap[page]];
-  if (nb) nb.classList.add('active');
-  // Bottom nav
-  document.querySelectorAll('.bottom-nav-btn').forEach(b=>{
-    b.classList.toggle('active', b.dataset.page===page);
+  // Desktop nav — onclick içinden page'i oku
+  document.querySelectorAll('.nav-btn').forEach(function(b) {
+    const m = (b.getAttribute('onclick')||'').match(/showPage\('([^']+)'\)/);
+    b.classList.toggle('active', m && m[1] === page);
   });
-  // Drawer nav
-  document.querySelectorAll('.drawer-nav-btn').forEach((b,i)=>{
-    b.classList.toggle('active', i===navMap[page]);
+  // Bottom nav — data-page attribute'u kullan
+  document.querySelectorAll('.bottom-nav-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.page === page);
+  });
+  // Drawer nav — onclick içinden page'i oku
+  document.querySelectorAll('.drawer-nav-btn').forEach(function(b) {
+    const m = (b.getAttribute('onclick')||'').match(/showPage\('([^']+)'\)/);
+    b.classList.toggle('active', m && m[1] === page);
   });
 }
 function showPage(page) {
@@ -8574,9 +8575,17 @@ function adminRenderFormConfig(c) {
       const tip = typeof item === 'object' ? item.tip : null;
       const grup = typeof item === 'object' ? item.grup : null;
       const formul = typeof item === 'object' ? item.formul : null;
-      return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px" id="${id}-row-${i}">
+      const isFormul = !!formul;
+      const rowBg = isFormul ? 'background:rgba(202,138,4,0.08);border:1px solid rgba(202,138,4,0.25);border-radius:8px;padding:4px 8px 4px 4px;' : '';
+      const inputBg = isFormul ? 'background:rgba(202,138,4,0.1);border:1px solid rgba(202,138,4,0.3);color:var(--yellow);' : 'background:var(--mid);border:1px solid var(--border);color:var(--text);';
+      const formulBadge = isFormul ? `<span title="Formül satırı — silmeyin" style="font-size:10px;background:rgba(202,138,4,0.15);color:var(--yellow);border:1px solid rgba(202,138,4,0.3);border-radius:4px;padding:2px 6px;white-space:nowrap;flex-shrink:0">🔒 formül</span>` : '';
+      const delBtn = isFormul
+        ? `<button disabled title="Formül satırı silinemez" style="padding:6px 10px;background:rgba(120,140,160,0.1);border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:13px;cursor:not-allowed;opacity:0.4">✕</button>`
+        : `<button onclick="adminFormDelRow('${id}',${i})" style="padding:6px 10px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.2);color:var(--accent);border-radius:6px;cursor:pointer;font-size:13px;font-family:inherit">✕</button>`;
+      return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;${rowBg}" id="${id}-row-${i}">
+        ${formulBadge}
         <input value="${v.replace(/"/g,'&quot;')}" id="${id}-val-${i}"
-          style="flex:1;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px;font-family:inherit"
+          style="flex:1;${inputBg}padding:7px 10px;border-radius:6px;font-size:13px;font-family:inherit"
           ${tip ? `data-tip="${tip}"` : ''}
           ${grup ? `data-grup="${grup}"` : ''}
           ${formul ? `data-formul="${formul}"` : ''}>
@@ -8585,7 +8594,7 @@ function adminRenderFormConfig(c) {
           <option value="oran" ${tip==='oran'?'selected':''}>Oran</option>
           <option value="metin" ${tip==='metin'?'selected':''}>Metin</option>
         </select>` : ''}
-        <button onclick="adminFormDelRow('${id}',${i})" style="padding:6px 10px;background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.2);color:var(--accent);border-radius:6px;cursor:pointer;font-size:13px;font-family:inherit">✕</button>
+        ${delBtn}
       </div>`;
     }).join('');
     return `<div class="admin-card" style="margin-bottom:16px">
