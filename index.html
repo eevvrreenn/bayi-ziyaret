@@ -5922,7 +5922,7 @@ const ADMIN_CFG_KEY_BAYILER = 'admin_bayiler';
 const ADMIN_CFG_KEY_PERMS   = 'admin_permissions';
 
 // ── Sayfa izin tanımları ──────────────────────────────────────
-const PERM_PAGES = [
+var PERM_PAGES = [
   { id: 'anasayfa',    label: '🏠 Ana Sayfa'         },
   { id: 'yeni-rapor',  label: '📝 Yeni Rapor'        },
   { id: 'dashboard',   label: '📊 Bayi Dashboard'    },
@@ -5934,15 +5934,14 @@ const PERM_PAGES = [
   { id: 'admin-panel', label: '⚙️ Yönetim Paneli'    },
 ];
 
-// Varsayılan izinler — her rol hangi sayfalara erişebilir
-const PERM_DEFAULTS = {
+var PERM_DEFAULTS = {
   mudur:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc'],
   satis_muduru: ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc'],
   direktor:     ['anasayfa','perf-panel','etkinlik','fc'],
   admin:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc','admin-panel'],
 };
 
-let ADMIN_PERMS_RT = null; // Supabase'den yüklenir, null ise PERM_DEFAULTS kullanılır
+var ADMIN_PERMS_RT = null;
 
 function getPerms(role) {
   const src = ADMIN_PERMS_RT || PERM_DEFAULTS;
