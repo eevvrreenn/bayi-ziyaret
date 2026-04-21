@@ -8510,9 +8510,16 @@ function adminRenderYetkiler(c) {
   const card = document.createElement('div');
   card.className = 'admin-card';
 
-  // Başlık
-  card.innerHTML = '<div style="font-size:14px;font-weight:700;margin-bottom:4px">Sayfa Erişim Yetkileri</div>'
-    + '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Admin her zaman tüm sayfalara erişir. Diğer roller için erişim izinlerini aşağıdan yönetin.</div>';
+  // Başlık — innerHTML yerine createElement
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText = 'font-size:14px;font-weight:700;margin-bottom:4px';
+  titleEl.textContent = 'Sayfa Erişim Yetkileri';
+  card.appendChild(titleEl);
+
+  const descEl = document.createElement('div');
+  descEl.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:16px';
+  descEl.textContent = 'Admin her zaman tüm sayfalara erişir. Diğer roller için erişim izinlerini aşağıdan yönetin.';
+  card.appendChild(descEl);
 
   // Tablo
   const wrap = document.createElement('div');
