@@ -6073,7 +6073,10 @@ function adminSetTab(tab) {
     _adminPwdUnlocked = false; // kilit sıfırla
   }
   adminTab = tab;
-  document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(tab==='users'?'kullanıcı':tab==='bayiler'?'bayi':'müdür')));
+  document.querySelectorAll('.admin-tab-btn').forEach(function(b) {
+    const m = (b.getAttribute('onclick')||'').match(/adminSetTab\('([^']+)'\)/);
+    b.classList.toggle('active', m && m[1] === tab);
+  });
   adminRenderTab();
 }
 
@@ -8349,17 +8352,17 @@ async function homeLoadNews() {
   var el = document.getElementById('home-news-content');
   if (!el) return;
 
-  // RSS2JSON üzerinden Türk haber kaynakları — sırayla dene
-  var feeds = [
-    'https://www.ntv.com.tr/son-dakika.rss',
-    'https://www.haberler.com/rss/',
-    'https://feeds.bbci.co.uk/turkish/rss.xml',
+  // Birden fazla RSS2JSON endpoint + feed dene
+  var attempts = [
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.ntv.com.tr/son-dakika.rss') + '&count=6&api_key=', type: 'rss2json' },
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://feeds.bbci.co.uk/turkish/rss.xml') + '&count=6', type: 'rss2json' },
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.sabah.com.tr/rss/anasayfa.xml') + '&count=6', type: 'rss2json' },
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.hurriyet.com.tr/rss/anasayfa') + '&count=6', type: 'rss2json' },
   ];
 
-  for (var i = 0; i < feeds.length; i++) {
+  for (var i = 0; i < attempts.length; i++) {
     try {
-      var url = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feeds[i]) + '&count=6';
-      var res = await fetch(url);
+      var res = await fetch(attempts[i].url);
       if (!res.ok) continue;
       var data = await res.json();
       if (data.status !== 'ok' || !data.items || !data.items.length) continue;
@@ -8376,15 +8379,19 @@ async function homeLoadNews() {
           + 'onmouseover="this.querySelector(\'span\').style.color=\'var(--blue)\'" '
           + 'onmouseout="this.querySelector(\'span\').style.color=\'var(--text)\'">'
           + '<span style="font-size:12px;font-weight:500;color:var(--text);line-height:1.5;transition:color 0.15s">' + title + '</span>'
-          + '<span style="font-size:10px;color:var(--muted);white-space:nowrap;margin-top:2px">' + date + '</span>'
+          + '<span style="font-size:10px;color:var(--muted);white-space:nowrap;margin-top:2px;flex-shrink:0">' + date + '</span>'
           + '</div></a>';
       }).join('')
-      + '<div style="font-size:10px;color:var(--muted);margin-top:8px">Kaynak: ' + source + '</div>';
-      return; // başarılıysa dur
+      + '<div style="font-size:10px;color:var(--muted);margin-top:8px">Kaynak: ' + source + ' · <a href="#" onclick="homeLoadNews();return false;" style="color:var(--blue)">Yenile</a></div>';
+      return;
     } catch(e) { continue; }
   }
-  // Hiçbiri çalışmadıysa
-  el.innerHTML = '<div style="color:var(--muted);font-size:12px">Haberler yüklenemedi.</div>';
+
+  // Hiçbiri çalışmadıysa yenile butonu göster
+  el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">'
+    + 'Haberler yüklenemedi. '
+    + '<span onclick="homeLoadNews()" style="color:var(--blue);cursor:pointer;text-decoration:underline">Tekrar dene</span>'
+    + '</div>';
 }
 
 async function homeLoadFinance() {
