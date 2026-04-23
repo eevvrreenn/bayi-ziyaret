@@ -2410,19 +2410,31 @@ function downloadPDF(id) {
   if (!r) return;
   toast('📄 PDF hazırlanıyor…', 'blue');
 
+  // Türkçe → Latin dönüşümü
+  function tr(str) {
+    if (!str) return '—';
+    return String(str)
+      .replace(/ğ/g,'g').replace(/Ğ/g,'G')
+      .replace(/ü/g,'u').replace(/Ü/g,'U')
+      .replace(/ş/g,'s').replace(/Ş/g,'S')
+      .replace(/ı/g,'i').replace(/İ/g,'I')
+      .replace(/ö/g,'o').replace(/Ö/g,'O')
+      .replace(/ç/g,'c').replace(/Ç/g,'C');
+  }
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
   // ── Arctic Light renk paleti ─────────────────────────────
-  const BLUE    = [37, 99, 235];     // #2563EB — ana vurgu
-  const NAVY    = [30, 58, 95];      // #1E3A5F — başlık metni
-  const BGPAGE  = [240, 244, 248];   // #F0F4F8 — sayfa arka planı
-  const BGCARD  = [255, 255, 255];   // #FFFFFF — kart yüzeyi
-  const BGALT   = [235, 242, 250];   // #EBF2FA — alternatif satır
-  const BORDER  = [209, 220, 232];   // #D1DCE8 — kenarlık
-  const MUTED   = [122, 143, 163];   // #7A8FA3 — soluk metin
-  const GREEN   = [21, 128, 61];     // #15803D
-  const RED_ERR = [220, 38, 38];     // #DC2626
+  const BLUE    = [37, 99, 235];
+  const NAVY    = [30, 58, 95];
+  const BGPAGE  = [240, 244, 248];
+  const BGCARD  = [255, 255, 255];
+  const BGALT   = [235, 242, 250];
+  const BORDER  = [209, 220, 232];
+  const MUTED   = [122, 143, 163];
+  const GREEN   = [21, 128, 61];
+  const RED_ERR = [220, 38, 38];
 
   const PW = 210, PH = 297;
   const ML = 14, MR = 14;
@@ -2444,9 +2456,8 @@ function downloadPDF(id) {
     doc.setFont('helvetica','normal');
     doc.setFontSize(6.5);
     doc.setTextColor(180, 200, 220);
-    // Honda logo — sağ üst
-    try { doc.addImage(HONDA_LOGO_B64, 'PNG', PW - MR - 18, 1, 16, 12); } catch(e) { /* logo yüklenemedi */ }
-    doc.text('Rapor No: ' + r.raporNo + '  |  ' + r.bayi + '  |  ' + r.tarih, PW - MR - 20, 9.5, {align:'right'});
+    try { doc.addImage(HONDA_LOGO_B64, 'PNG', PW - MR - 18, 1, 16, 12); } catch(e) {}
+    doc.text('Rapor No: ' + tr(r.raporNo) + '  |  ' + tr(r.bayi) + '  |  ' + tr(r.tarih), PW - MR - 20, 9.5, {align:'right'});
     doc.setFillColor(...BGPAGE);
     doc.rect(0, 16, PW, PH - 16, 'F');
     y = 22;
@@ -2464,7 +2475,7 @@ function downloadPDF(id) {
     doc.setFont('helvetica','bold');
     doc.setFontSize(8);
     doc.setTextColor(...NAVY);
-    doc.text(title, ML + 7, y + 6);
+    doc.text(tr(title), ML + 7, y + 6);
     y += 12;
   }
 
@@ -2482,11 +2493,11 @@ function downloadPDF(id) {
       doc.setFont('helvetica','normal');
       doc.setFontSize(6.5);
       doc.setTextColor(...MUTED);
-      doc.text(label, xBase, yBase - 1.5);
+      doc.text(tr(label), xBase, yBase - 1.5);
       doc.setFont('helvetica','bold');
       doc.setFontSize(7.5);
       doc.setTextColor(...NAVY);
-      doc.text(String(value||'—'), xBase, yBase + 3);
+      doc.text(tr(String(value||'—')), xBase, yBase + 3);
       if (col === 0) {
         doc.setDrawColor(...BORDER);
         doc.line(ML + colW, y + row * rowH, ML + colW, y + row * rowH + rowH);
@@ -2500,8 +2511,8 @@ function downloadPDF(id) {
     checkY(14);
     doc.autoTable(Object.assign({
       startY: y,
-      head: [head],
-      body: body,
+      head: [head.map(tr)],
+      body: body.map(function(row){ return row.map(function(cell){ return typeof cell === 'string' ? tr(cell) : cell; }); }),
       margin: { left: ML, right: MR },
       styles: {
         fontSize: 7, cellPadding: 2.8,
@@ -2530,11 +2541,9 @@ function downloadPDF(id) {
             data.cell.styles.textColor = RED_ERR;
             data.cell.styles.fontStyle = 'bold';
           }
-          if (v === 'Uyumlu' || v === 'Hedefte') {
-            data.cell.styles.textColor = GREEN;
+          if (v === 'Uyumlu' || v === 'Uyumlu Degil' || v === 'Hedefte') {
+            data.cell.styles.textColor = v === 'Uyumlu' || v === 'Hedefte' ? GREEN : RED_ERR;
             data.cell.styles.fontStyle = 'bold';
-          } else if (v === 'Uyumlu Değil') {
-            data.cell.styles.textColor = RED_ERR;
           }
         }
       },
@@ -2548,54 +2557,52 @@ function downloadPDF(id) {
   pageHeader();
 
   // ── 1. Genel Bilgiler ────────────────────────────────────
-  sectionTitle('1. GENEL BİLGİLER');
+  sectionTitle('1. GENEL BILGILER');
   kvGrid([
     ['Rapor No',       r.raporNo],
-    ['Bayi Adı',       r.bayi],
+    ['Bayi Adi',       r.bayi],
     ['Ziyaret Tarihi', r.tarih],
-    ['Şehir / İlçe',   r.sehir],
-    ['Bölge Müdürü',   r.bolgeMusduru],
-    ['Katılımcılar',   r.katilimci||'—'],
-    ['Ziyaret Amacı',  r.amac],
-    ['Ziyaret Türü',   r.tur],
+    ['Sehir / Ilce',   r.sehir],
+    ['Bolge Muduru',   r.bolgeMusduru],
+    ['Katilimcilar',   r.katilimci||'—'],
+    ['Ziyaret Amaci',  r.amac],
+    ['Ziyaret Turu',   r.tur],
   ]);
 
   // ── 2. Satış & Performans ────────────────────────────────
-  sectionTitle('2. SATIŞ & PERFORMANS');
+  sectionTitle('2. SATIS & PERFORMANS');
   const perfBody = PERF_ROWS.map(function(row,i) {
     const h = r.perf&&r.perf[i] ? r.perf[i].hedef||'—' : '—';
     const g = r.perf&&r.perf[i] ? r.perf[i].gercek||'—' : '—';
     const s = r.perf&&r.perf[i] ? r.perf[i].sapma : undefined;
     const sText = (s!==undefined&&s!=='') ? (parseFloat(s)>0?'+':'')+parseFloat(s).toFixed(row.tip==='oran'?2:1)+(row.tip==='oran'?' pp':'%') : '—';
-    return [row.label+(row.tip==='oran'?' (%)':''), h, g, sText, r.perf&&r.perf[i] ? r.perf[i].not||'' : ''];
+    return [tr(row.label)+(row.tip==='oran'?' (%)':''), h, g, sText, r.perf&&r.perf[i] ? r.perf[i].not||'' : ''];
   });
-  autoT(['Gösterge','Hedef','Actual','Sapma','Notlar'], perfBody,
+  autoT(['Gosterge','Hedef','Actual','Sapma','Notlar'], perfBody,
     { columnStyles: { 0:{cellWidth:68}, 1:{cellWidth:20,halign:'center'}, 2:{cellWidth:22,halign:'center'}, 3:{cellWidth:22,halign:'center'}, 4:{cellWidth:'auto'} } });
 
   // ── 3. Test Araçları ─────────────────────────────────────
-  sectionTitle('3. TEST ARAÇLARI');
+  sectionTitle('3. TEST ARACLARI');
   const testBody = TEST_MODELLER.map(function(m,i){
     const s = r.testArac&&r.testArac[i] ? r.testArac[i].sapma : undefined;
     const sText = (s!==undefined&&s!=='') ? (parseFloat(s)>0?'+':'')+parseFloat(s).toFixed(1)+'%' : '—';
-    return [m, r.testArac&&r.testArac[i]?r.testArac[i].hedef||'—':'—', r.testArac&&r.testArac[i]?r.testArac[i].mevcut||'—':'—', sText, r.testArac&&r.testArac[i]?r.testArac[i].not||'':''];
+    return [tr(m), r.testArac&&r.testArac[i]?r.testArac[i].hedef||'—':'—', r.testArac&&r.testArac[i]?r.testArac[i].mevcut||'—':'—', sText, r.testArac&&r.testArac[i]?r.testArac[i].not||'':''];
   });
   autoT(['Model','Hedef','Mevcut','Sapma','Notlar'], testBody,
     { columnStyles: { 0:{cellWidth:50}, 1:{cellWidth:22,halign:'center'}, 2:{cellWidth:22,halign:'center'}, 3:{cellWidth:22,halign:'center'}, 4:{cellWidth:'auto'} } });
 
   // ── 4. Hizmet Kalitesi ───────────────────────────────────
-  sectionTitle('4. HİZMET KALİTESİ');
-  const hizmetLabels = ['Showroom Temizliği','Danışman Kıyafetleri','Danışman İsimlikler','Spek Stand Kullanımı','Model Plakalıkları','Hanger Kullanımı','Müşteri İkramı (İçecek)','Müşteri İkramı (Yiyecek)'];
-  const hizmetBody = hizmetLabels.map(function(k,i){ return [k, r.hizmet&&r.hizmet[i]?r.hizmet[i].durum||'—':'—', r.hizmet&&r.hizmet[i]?r.hizmet[i].not||'':'']; });
+  sectionTitle('4. HIZMET KALITESI');
+  const hizmetBody = HK_ITEMS.map(function(k,i){ return [tr(k), tr(r.hizmet&&r.hizmet[i]?r.hizmet[i].durum||'—':'—'), r.hizmet&&r.hizmet[i]?r.hizmet[i].not||'':'']; });
   autoT(['Kriter','Durum','Notlar'], hizmetBody,
     { columnStyles: { 0:{cellWidth:70}, 1:{cellWidth:35,halign:'center'}, 2:{cellWidth:'auto'} } });
 
   // ── 5. Personel ──────────────────────────────────────────
   sectionTitle('5. PERSONEL');
-  const personelLabels = ['Satış Danışmanı','Satış Şefi','Satış Müdürü','Resepsiyon Görevlisi','Müşteri İlişkiler Personeli','Teslimat Görevlisi','Diğer'];
-  const personelBody = personelLabels.map(function(p,i){
+  const personelBody = PERSONEL_TIPLER.map(function(p,i){
     const s = r.personel&&r.personel[i] ? r.personel[i].sapma : undefined;
     const sText = (s!==undefined&&s!=='') ? (parseFloat(s)>0?'+':'')+s : '—';
-    return [p, r.personel&&r.personel[i]?r.personel[i].mevcut||'—':'—', r.personel&&r.personel[i]?r.personel[i].hedef||'—':'—', sText, r.personel&&r.personel[i]?r.personel[i].not||'':''];
+    return [tr(p), r.personel&&r.personel[i]?r.personel[i].mevcut||'—':'—', r.personel&&r.personel[i]?r.personel[i].hedef||'—':'—', sText, r.personel&&r.personel[i]?r.personel[i].not||'':''];
   });
   autoT(['Personel','Mevcut','Hedef','Sapma','Notlar'], personelBody,
     { columnStyles: { 0:{cellWidth:55}, 1:{cellWidth:20,halign:'center'}, 2:{cellWidth:20,halign:'center'}, 3:{cellWidth:20,halign:'center'}, 4:{cellWidth:'auto'} } });
@@ -2603,17 +2610,17 @@ function downloadPDF(id) {
   // ── 6. Bulgular & Aksiyonlar ─────────────────────────────
   const aks = (r.aksiyonlar||[]).filter(function(a){ return a.bulgu; });
   if (aks.length) {
-    sectionTitle('6. BULGULAR & AKSİYONLAR');
+    sectionTitle('6. BULGULAR & AKSIYONLAR');
     autoT(['#','Bulgu/Sorun','Aksiyon','Sorumlu','Termin','Durum'],
-      aks.map(function(a,i){ return [i+1, a.bulgu, a.aksiyon, a.sorumlu, a.termin, a.durum||'Açık']; }),
+      aks.map(function(a,i){ return [i+1, tr(a.bulgu), tr(a.aksiyon), tr(a.sorumlu), a.termin, tr(a.durum||'Acik')]; }),
       { columnStyles: { 0:{cellWidth:8,halign:'center'}, 1:{cellWidth:40}, 2:{cellWidth:40}, 3:{cellWidth:22}, 4:{cellWidth:18,halign:'center'}, 5:{cellWidth:18,halign:'center'} } });
   }
 
   // ── 7. Yorumlar & Bayi Görüşü ────────────────────────────
   if (r.yorumlar || r.bayiGorusu) {
-    sectionTitle('7. YORUMLAR & BAYİ GÖRÜŞÜ');
-    [[r.yorumlar||'—','Yorumlar & Öneriler'],[r.bayiGorusu||'—','Bayi Görüşü / Talebi']].forEach(function(item) {
-      const txt = item[0], lbl = item[1];
+    sectionTitle('7. YORUMLAR & BAYI GORUSU');
+    [[r.yorumlar||'—','Yorumlar & Oneriler'],[r.bayiGorusu||'—','Bayi Gorusu / Talebi']].forEach(function(item) {
+      const txt = tr(item[0]), lbl = tr(item[1]);
       checkY(18);
       doc.setFillColor(...BGCARD);
       doc.setDrawColor(...BORDER);
@@ -2642,7 +2649,7 @@ function downloadPDF(id) {
 
   // ── 8. Fotoğraflar ───────────────────────────────────────
   if (r.fotograflar && r.fotograflar.length) {
-    sectionTitle('8. FOTOĞRAFLAR (' + r.fotograflar.length + ')');
+    sectionTitle('8. FOTOGRAFLAR (' + r.fotograflar.length + ')');
     const imgW = (CW - 8) / 3;
     const imgH = imgW * 0.67;
     r.fotograflar.forEach(function(f, fi) {
@@ -2661,7 +2668,7 @@ function downloadPDF(id) {
         doc.setFont('helvetica','normal');
         doc.setFontSize(6);
         doc.setTextColor(...MUTED);
-        const cap = doc.splitTextToSize(f.caption, imgW-4);
+        const cap = doc.splitTextToSize(tr(f.caption), imgW-4);
         doc.text(cap[0], xPos + imgW/2, y + imgH + 5, {align:'center'});
       }
       if (col === 2 || fi === r.fotograflar.length - 1) y += imgH + (f.caption?12:6);
@@ -2681,9 +2688,9 @@ function downloadPDF(id) {
   doc.setFont('helvetica','bold');
   doc.setFontSize(7);
   doc.setTextColor(...NAVY);
-  doc.text('İMZALAR', ML+6, y+5);
+  doc.text('IMZALAR', ML+6, y+5);
   const sigCols = [ML+12, ML+60, ML+108, ML+156];
-  const sigLabels = ['Bölge Müdürü','Satış Müdürü','Genel Müdür','Bayi Sahibi'];
+  const sigLabels = ['Bolge Muduru','Satis Muduru','Genel Mudur','Bayi Sahibi'];
   sigLabels.forEach(function(lbl,i) {
     doc.setDrawColor(...BORDER);
     doc.setLineWidth(0.4);
@@ -5092,6 +5099,17 @@ var ETK_currentNav = 'dashboard';
 var ETK_detailAct = null;
 
 // Rol köprüsü: ana uygulamanın rollerini etkinlik rollerine çevir
+// Role göre görünür etkinlikleri döndür
+function etkVisibleActs(cu) {
+  if (!cu) return [];
+  if (cu.role === 'mudur') {
+    // BM sadece kendi açtığı etkinlikleri görür
+    return ETK_acts.filter(function(a) { return a.did === cu.id; });
+  }
+  // SM, Direktör, Admin hepsini görür
+  return ETK_acts;
+}
+
 function etkRole() {
   if (!currentUser) return 'mudur';
   var r = currentUser.role;
@@ -5112,7 +5130,13 @@ function etkCu() {
 
 async function etkLoadFromDb() {
   try {
-    var res = await fetch(SUPABASE_URL + '/rest/v1/etkinlikler?select=*&order=created_at.desc', {
+    var cu = etkCu();
+    // BM sadece kendi etkinliklerini çeker
+    var query = '/rest/v1/etkinlikler?select=*&order=created_at.desc';
+    if (cu && cu.role === 'mudur') {
+      query += '&did=eq.' + encodeURIComponent(cu.id);
+    }
+    var res = await fetch(SUPABASE_URL + query, {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
     });
     if (!res.ok) {
@@ -5268,7 +5292,7 @@ function etkGetPc(cu) {
 
 // ── DASHBOARD ──────────────────────────────────────────────
 function etkRenderDB(c, cu) {
-  var acts = ETK_acts;
+  var acts = etkVisibleActs(cu);
   var completed = acts.filter(function(a){return a.status==='completed';});
   var pending   = acts.filter(function(a){return ['pending_sm','pending_dir','revision_requested'].includes(a.status);});
   var tb = completed.reduce(function(s,a){return s+(a.appAmt||0);},0);
@@ -5303,13 +5327,22 @@ function etkInitCharts() {
   if (ca) {
     if (ca._ci) { ca._ci.destroy(); ca._ci = null; }
 
-    // Son 6 ayın etiketlerini oluştur
-    var months = [];
-    var now = new Date();
-    for (var i = 5; i >= 0; i--) {
-      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push({ label: ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'][d.getMonth()] + ' ' + String(d.getFullYear()).slice(2), month: String(d.getMonth()+1).padStart(2,'0'), year: d.getFullYear() });
-    }
+    // Mali yıl: Nisan 2026 → Mart 2027 (12 ay sabit)
+    var MALI_YIL_AYLAR = [
+      { label: 'Nis 26', month: '04', year: 2026 },
+      { label: 'May 26', month: '05', year: 2026 },
+      { label: 'Haz 26', month: '06', year: 2026 },
+      { label: 'Tem 26', month: '07', year: 2026 },
+      { label: 'Agu 26', month: '08', year: 2026 },
+      { label: 'Eyl 26', month: '09', year: 2026 },
+      { label: 'Eki 26', month: '10', year: 2026 },
+      { label: 'Kas 26', month: '11', year: 2026 },
+      { label: 'Ara 26', month: '12', year: 2026 },
+      { label: 'Oca 27', month: '01', year: 2027 },
+      { label: 'Sub 27', month: '02', year: 2027 },
+      { label: 'Mar 27', month: '03', year: 2027 },
+    ];
+    var months = MALI_YIL_AYLAR;
 
     var countData = months.map(function(m) {
       return ETK_acts.filter(function(a) {
@@ -5450,19 +5483,20 @@ function etkGoDetail(id) {
 
 // ── TÜM ETKİNLİKLER ──────────────────────────────────────────
 function etkRenderAllActs(c, cu) {
+  var visible = etkVisibleActs(cu);
   c.innerHTML = '<div class="etk-tb"><div class="etk-tb-title">📋 Tüm Etkinlikler</div>'
     +(cu.role==='mudur'?'<button class="etk-btn etk-btn-primary" onclick="etkNav(\'newAct\')">+ Yeni Talep</button>':'')+'</div>'
     +'<div class="etk-fb"><input placeholder="Bayi, etkinlik, kod..." id="etkSrch" oninput="etkFilter()">'
     +'<select id="etkFst" onchange="etkFilter()"><option value="">Tüm Durumlar</option>'
     +Object.entries(ETK_SL).map(function(e){return '<option value="'+e[0]+'">'+e[1]+'</option>';}).join('')+'</select></div>'
-    +'<div class="etk-card" id="etkActW"><div class="etk-cb">'+etkBuildTbl(ETK_acts.slice().reverse(), cu)+'</div></div>';
+    +'<div class="etk-card" id="etkActW"><div class="etk-cb">'+etkBuildTbl(visible.slice().reverse(), cu)+'</div></div>';
 }
 
 function etkFilter() {
   var cu = etkCu();
   var q = (document.getElementById('etkSrch')||{value:''}).value.toLowerCase();
   var s = (document.getElementById('etkFst')||{value:''}).value;
-  var list = ETK_acts.slice();
+  var list = etkVisibleActs(cu).slice();
   if (q) list = list.filter(function(a){return a.title.toLowerCase().includes(q)||a.dn.toLowerCase().includes(q)||a.id.toLowerCase().includes(q);});
   if (s) list = list.filter(function(a){return a.status===s;});
   var w = document.getElementById('etkActW');
@@ -5820,7 +5854,7 @@ async function etkSubRes(id) {
 
 // ── RAPORLAR ─────────────────────────────────────────────────
 function etkRenderReports(c, cu) {
-  var acts = ETK_acts;
+  var acts = etkVisibleActs(cu);
   var rows = {};
   acts.forEach(function(a){
     if (!rows[a.dn]) rows[a.dn]={d:a.dn,r:a.reg,cnt:0,req:0,app:0,comp:0};
