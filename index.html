@@ -1256,6 +1256,7 @@ function showPage(page) {
 // ============================================================
 function renderYeniRapor(prefill={}) {
   const isSuperUser = ['admin','satis_muduru'].includes(currentUser?.role);
+  const isDetayli = currentUser?.role === 'mudur' || currentUser?.role === 'admin';
   const bayilerForMudur = isSuperUser
     ? (ADMIN_BAYILER_RT || BAYILER).filter(b => b.mudur === selectedMudur)
     : BAYILER.filter(b => b.mudur === selectedMudur);
@@ -1281,11 +1282,8 @@ function renderYeniRapor(prefill={}) {
     </div>`).join('')}
   </div>` : '';
 
-  document.getElementById('main-content').innerHTML = `
-  <div class="page-title">🏍️ Yeni Ziyaret Raporu</div>
-  <div class="page-sub" style="display:flex;justify-content:space-between;align-items:center"><span>Bölge Müdürü: <strong>${selectedMudur}</strong></span><span id="draft-indicator" style="font-size:11px;color:var(--muted)"></span></div>
-  ${taslakHtml}
-
+  // Ortak bölümler
+  const genel = `
   <div class="card">
     <div class="card-title">1. Genel Bilgiler</div>
     <div class="form-grid">
@@ -1317,8 +1315,9 @@ function renderYeniRapor(prefill={}) {
         <input type="text" id="f-katilimci" value="${prefill.katilimci||''}" placeholder="Katılımcı adları">
       </div>
     </div>
-  </div>
+  </div>`;
 
+  const ziyaret = `
   <div class="card">
     <div class="card-title">2. Ziyaret Bilgileri</div>
     <div class="form-grid">
@@ -1335,16 +1334,54 @@ function renderYeniRapor(prefill={}) {
         </select>
       </div>
     </div>
+  </div>`;
+
+  const bulgular = `
+  <div class="card">
+    <div class="card-title">3. Bulgular & Aksiyonlar</div>
+    <div id="aksiyon-container">
+      ${(prefill.aksiyonlar||[{},{}]).map((a,i)=>renderAksiyonRow(i,a)).join('')}
+    </div>
+    <button class="btn secondary sm" onclick="addAksiyon()" style="margin-top:10px">+ Satır Ekle</button>
+  </div>`;
+
+  const yorumlar = `
+  <div class="card">
+    <div class="card-title">4. Yorumlar & Öneriler</div>
+    <textarea id="f-yorumlar" style="width:100%;min-height:80px">${prefill.yorumlar||''}</textarea>
   </div>
 
+  <div class="card">
+    <div class="card-title">5. Bayi Görüşü / Talebi</div>
+    <textarea id="f-bayigorusu" style="width:100%;min-height:80px">${prefill.bayiGorusu||''}</textarea>
+  </div>`;
+
+  const fotograflar = `
+  <div class="card">
+    <div class="card-title">6. Fotoğraflar</div>
+    <div id="foto-drop-zone" onclick="document.getElementById('foto-input').click()"
+      style="border:2px dashed var(--border);border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:border 0.2s;margin-bottom:14px"
+      ondragover="event.preventDefault();this.style.borderColor='var(--red)'"
+      ondragleave="this.style.borderColor='var(--border)'"
+      ondrop="handleFotoDrop(event)">
+      <div style="font-size:28px;margin-bottom:8px">📷</div>
+      <div style="font-size:13px;color:var(--muted)">Fotoğraf eklemek için tıklayın veya sürükleyin</div>
+      <div style="font-size:11px;color:var(--border);margin-top:4px">JPG, PNG — max 5 MB / fotoğraf</div>
+      <input type="file" id="foto-input" accept="image/*" multiple style="display:none" onchange="handleFotoInput(this)">
+    </div>
+    <div id="foto-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px">
+      ${(prefill.fotograflar||[]).map((f,i)=>fotoThumb(f,i)).join('')}
+    </div>
+  </div>`;
+
+  // BM'ye özgü ek bölümler
+  const perfBolum = !isDetayli ? '' : `
   <div class="card">
     <div class="card-title">3. Satış & Performans</div>
     <div class="table-scroll">
     <table class="data-table">
       <thead><tr><th>Gösterge</th><th>Hedef</th><th>Gerçekleşen/Pace</th><th>Sapma %</th><th>Notlar</th></tr></thead>
-      <tbody>
-        ${renderPerfRows(prefill)}
-      </tbody>
+      <tbody>${renderPerfRows(prefill)}</tbody>
     </table>
     </div>
   </div>
@@ -1386,43 +1423,26 @@ function renderYeniRapor(prefill={}) {
         </tr>`).join('')}
       </tbody>
     </table>
-  </div>
+  </div>`;
 
-  <div class="card">
-    <div class="card-title">7. Bulgular & Aksiyonlar</div>
-    <div id="aksiyon-container">
-      ${(prefill.aksiyonlar||[{},{}]).map((a,i)=>renderAksiyonRow(i,a)).join('')}
-    </div>
-    <button class="btn secondary sm" onclick="addAksiyon()" style="margin-top:10px">+ Satır Ekle</button>
-  </div>
+  // Bölüm numaralarını role göre ayarla
+  const bulgularHtml = isDetayli ? bulgular.replace('3. Bulgular','7. Bulgular') : bulgular;
+  const yorumlarHtml = isDetayli ? yorumlar.replace('4. Yorumlar','8. Yorumlar').replace('5. Bayi','9. Bayi') : yorumlar;
+  const fotograflarHtml = isDetayli ? fotograflar.replace('6. Fotoğraflar','10. Fotoğraflar') : fotograflar;
 
-  <div class="card">
-    <div class="card-title">8. Yorumlar & Öneriler</div>
-    <textarea id="f-yorumlar" style="width:100%;min-height:80px">${prefill.yorumlar||''}</textarea>
+  document.getElementById('main-content').innerHTML = `
+  <div class="page-title">🏍️ Yeni Ziyaret Raporu</div>
+  <div class="page-sub" style="display:flex;justify-content:space-between;align-items:center">
+    <span>Bölge Müdürü: <strong>${selectedMudur}</strong></span>
+    <span id="draft-indicator" style="font-size:11px;color:var(--muted)"></span>
   </div>
-
-  <div class="card">
-    <div class="card-title">9. Bayi Görüşü / Talebi</div>
-    <textarea id="f-bayigorusu" style="width:100%;min-height:80px">${prefill.bayiGorusu||''}</textarea>
-  </div>
-
-  <div class="card">
-    <div class="card-title">10. Fotoğraflar</div>
-    <div id="foto-drop-zone" onclick="document.getElementById('foto-input').click()"
-      style="border:2px dashed var(--border);border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:border 0.2s;margin-bottom:14px"
-      ondragover="event.preventDefault();this.style.borderColor='var(--red)'"
-      ondragleave="this.style.borderColor='var(--border)'"
-      ondrop="handleFotoDrop(event)">
-      <div style="font-size:28px;margin-bottom:8px">📷</div>
-      <div style="font-size:13px;color:var(--muted)">Fotoğraf eklemek için tıklayın veya sürükleyin</div>
-      <div style="font-size:11px;color:var(--border);margin-top:4px">JPG, PNG — max 5 MB / fotoğraf</div>
-      <input type="file" id="foto-input" accept="image/*" multiple style="display:none" onchange="handleFotoInput(this)">
-    </div>
-    <div id="foto-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px">
-      ${(prefill.fotograflar||[]).map((f,i)=>fotoThumb(f,i)).join('')}
-    </div>
-  </div>
-
+  ${taslakHtml}
+  ${genel}
+  ${ziyaret}
+  ${perfBolum}
+  ${bulgularHtml}
+  ${yorumlarHtml}
+  ${fotograflarHtml}
   <div class="btn-row">
     <button class="btn" onclick="saveRapor()">📤 Gönder</button>
     <button class="btn secondary" onclick="saveTaslakRapor()" style="border:1px solid var(--border)">💾 Taslak Kaydet</button>
@@ -2902,6 +2922,7 @@ async function doLogin() {
   // Kısayolları ve taslak raporları yükle
   kisayollarLoad().catch(function(){});
   taslakRaporlarLoad().catch(function(){});
+  fiyatDonemlerYukle().catch(function(){});
 
   // Admin butonu göster/gizle
   document.querySelectorAll('.admin-only').forEach(el => {
@@ -5975,23 +5996,24 @@ var ADMIN_CFG_KEY_PERMS   = 'admin_permissions';
 
 // ── Sayfa izin tanımları ──────────────────────────────────────
 var PERM_PAGES = [
-  { id: 'anasayfa',    label: '🏠 Ana Sayfa'         },
-  { id: 'yeni-rapor',  label: '📝 Yeni Rapor'        },
-  { id: 'dashboard',   label: '📊 Bayi Dashboard'    },
-  { id: 'takvim',      label: '📅 Ziyaret Takvimi'   },
-  { id: 'tum-raporlar',label: '📋 Tüm Raporlar'      },
-  { id: 'perf-panel',  label: '🏆 Performans Paneli' },
-  { id: 'etkinlik',    label: '🎪 Etkinlik Yönetimi' },
-  { id: 'fiyat',       label: '💰 Fiyat & Hesaplama' },
-  { id: 'fc',          label: '📈 Retail Forecast'   },
-  { id: 'admin-panel', label: '⚙️ Yönetim Paneli'    },
+  { id: 'anasayfa',    label: '🏠 Ana Sayfa'              },
+  { id: 'yeni-rapor',  label: '📝 Yeni Rapor'             },
+  { id: 'dashboard',   label: '📊 Bayi Dashboard'         },
+  { id: 'takvim',      label: '📅 Ziyaret Takvimi'        },
+  { id: 'tum-raporlar',label: '📋 Tüm Raporlar'           },
+  { id: 'perf-panel',  label: '🏆 Performans Paneli'      },
+  { id: 'etkinlik',    label: '🎪 Etkinlik Yönetimi'      },
+  { id: 'fiyat',       label: '💰 Fiyat & Hesaplama'      },
+  { id: 'fiyat-donem', label: '📥 Fiyat Dönem Yönetimi'  },
+  { id: 'fc',          label: '📈 Retail Forecast'        },
+  { id: 'admin-panel', label: '⚙️ Yönetim Paneli'         },
 ];
 
 var PERM_DEFAULTS = {
   mudur:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fc'],
-  satis_muduru: ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fc'],
+  satis_muduru: ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fiyat-donem','fc'],
   direktor:     ['anasayfa','perf-panel','etkinlik','fiyat','fc'],
-  admin:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fc','admin-panel'],
+  admin:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fiyat-donem','fc','admin-panel'],
 };
 
 var ADMIN_PERMS_RT = null;
@@ -6825,7 +6847,48 @@ var KREDI_KARTI = [
   {banka:'QNB', tip:'Bireysel/Ticari', taksit:12, oran:0.2455},
 ];
 
-var FIYAT_VIEW = 'hesap'; // 'hesap' | 'liste' | 'kk'
+var FIYAT_VIEW = 'hesap';
+var FIYAT_DONEMLER = {}; // { 'Nisan 2026': { fiyatlar: [...], komisyonlar: [...] } }
+var FIYAT_AKTIF_DONEM = null; // Seçili dönem adı — null ise varsayılan veriler kullanılır
+
+async function fiyatDonemlerYukle() {
+  try {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store?key=like.fiyat_donem_*&select=key,value', {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    if (!res.ok) return;
+    var rows = await res.json();
+    FIYAT_DONEMLER = {};
+    rows.forEach(function(r) {
+      var donemAd = r.key.replace('fiyat_donem_', '');
+      try { FIYAT_DONEMLER[donemAd] = JSON.parse(r.value); } catch(e) {}
+    });
+  } catch(e) {}
+}
+
+async function fiyatDonemKaydet(donemAd, fiyatlar, komisyonlar) {
+  var key = 'fiyat_donem_' + donemAd.replace(/\s+/g, '_');
+  await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store', {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify({ key: key, value: JSON.stringify({ fiyatlar: fiyatlar, komisyonlar: komisyonlar, ad: donemAd }) })
+  });
+  FIYAT_DONEMLER[donemAd] = { fiyatlar: fiyatlar, komisyonlar: komisyonlar, ad: donemAd };
+}
+
+function fiyatAktifListe() {
+  if (FIYAT_AKTIF_DONEM && FIYAT_DONEMLER[FIYAT_AKTIF_DONEM] && FIYAT_DONEMLER[FIYAT_AKTIF_DONEM].fiyatlar) {
+    return FIYAT_DONEMLER[FIYAT_AKTIF_DONEM].fiyatlar;
+  }
+  return FIYAT_LISTESI;
+}
+
+function fiyatAktifKK() {
+  if (FIYAT_AKTIF_DONEM && FIYAT_DONEMLER[FIYAT_AKTIF_DONEM] && FIYAT_DONEMLER[FIYAT_AKTIF_DONEM].komisyonlar) {
+    return FIYAT_DONEMLER[FIYAT_AKTIF_DONEM].komisyonlar;
+  }
+  return KREDI_KARTI;
+}
 
 function renderFiyatPanel() {
   currentPage = 'fiyat';
@@ -6834,11 +6897,30 @@ function renderFiyatPanel() {
     b.classList.toggle('active', m && m[1] === 'fiyat');
   });
 
+  var isYetkili = hasPermission('fiyat-donem');
+
   var tabs = [
     {id:'hesap', label:'🧮 Hesaplama Aracı'},
     {id:'liste', label:'📋 Fiyat Listesi'},
     {id:'kk',    label:'💳 Kredi Kartı Komisyonları'},
   ];
+  if (isYetkili) tabs.push({id:'donem', label:'📥 Dönem Yönetimi'});
+
+  // Dönem dropdown (Dönem Yönetimi sekmesi hariç hepsinde göster)
+  var donemler = Object.keys(FIYAT_DONEMLER);
+  var donemOpts = '<option value="">— Varsayılan (kod içi) —</option>'
+    + donemler.map(function(d) {
+        return '<option value="' + d + '"' + (FIYAT_AKTIF_DONEM===d?' selected':'') + '>' + d + '</option>';
+      }).join('');
+
+  var donemBar = FIYAT_VIEW !== 'donem'
+    ? '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 16px">'
+      + '<span style="font-size:12px;font-weight:600;color:var(--muted)">Dönem:</span>'
+      + '<select onchange="FIYAT_AKTIF_DONEM=this.value||null;renderFiyatPanel()" style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-size:13px;font-family:inherit;min-width:220px">'
+      + donemOpts + '</select>'
+      + (FIYAT_AKTIF_DONEM ? '<span style="font-size:11px;color:var(--blue);font-weight:600">📌 ' + FIYAT_AKTIF_DONEM + '</span>' : '<span style="font-size:11px;color:var(--muted)">Varsayılan veriler</span>')
+      + '</div>'
+    : '';
 
   var tabHtml = '<div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px">'
     + tabs.map(function(t) {
@@ -6849,46 +6931,220 @@ function renderFiyatPanel() {
   var content = '';
   if (FIYAT_VIEW === 'hesap') content = fiyatHesapla();
   else if (FIYAT_VIEW === 'liste') content = fiyatListe();
-  else content = fiyatKK();
+  else if (FIYAT_VIEW === 'kk') content = fiyatKK();
+  else if (FIYAT_VIEW === 'donem') content = fiyatDonemYonetim();
 
   document.getElementById('main-content').innerHTML =
     '<div class="page-title">💰 Fiyat & Hesaplama</div>'
-    + tabHtml + content;
+    + donemBar + tabHtml + content;
 
   if (FIYAT_VIEW === 'hesap') fiyatHesaplaOtomatik();
 }
 
+function fiyatDonemYonetim() {
+  var donemler = Object.keys(FIYAT_DONEMLER);
+  var donemListesi = donemler.length
+    ? donemler.map(function(d) {
+        var aktif = FIYAT_AKTIF_DONEM === d;
+        var count = (FIYAT_DONEMLER[d].fiyatlar||[]).length;
+        var kkCount = (FIYAT_DONEMLER[d].komisyonlar||[]).length;
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)">'
+          + '<div>'
+          + '<div style="font-weight:700;font-size:14px;color:' + (aktif?'var(--blue)':'var(--text)') + '">'
+          + (aktif ? '📌 ' : '') + d + '</div>'
+          + '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + count + ' model · ' + kkCount + ' komisyon satırı</div>'
+          + '</div>'
+          + '<div style="display:flex;gap:8px">'
+          + '<button onclick="FIYAT_AKTIF_DONEM=\'' + d + '\';renderFiyatPanel()" style="padding:6px 14px;background:' + (aktif?'var(--blue)':'rgba(29,78,216,0.08)') + ';color:' + (aktif?'#fff':'var(--blue)') + ';border:1px solid rgba(29,78,216,0.2);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">'
+          + (aktif ? '✓ Aktif' : 'Seç') + '</button>'
+          + '<button onclick="fiyatDonemSilByAd(\'' + d + '\')" style="padding:6px 10px;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);color:var(--accent);border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">🗑</button>'
+          + '</div>'
+          + '</div>';
+      }).join('')
+    : '<div style="color:var(--muted);font-size:13px;padding:16px 0">Henüz yüklenmiş dönem yok.</div>';
+
+  return '<div style="max-width:700px">'
+
+    // Mevcut dönemler
+    + '<div class="card" style="margin-bottom:20px">'
+    + '<div class="card-title">📅 Mevcut Dönemler</div>'
+    + donemListesi
+    + (FIYAT_AKTIF_DONEM ? '<div style="margin-top:12px"><button onclick="FIYAT_AKTIF_DONEM=null;renderFiyatPanel()" style="padding:6px 14px;background:var(--mid);border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">Seçimi Kaldır (Varsayılan)</button></div>' : '')
+    + '</div>'
+
+    // Yeni dönem yükle
+    + '<div class="card">'
+    + '<div class="card-title">📥 Yeni Dönem Yükle</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Excel dosyasındaki "Fiyat Listesi" ve "Kredi Kartı" sekmeleri okunur. Aynı dönem adıyla yüklenirse üzerine yazılır.</div>'
+    + '<div class="form-group" style="margin-bottom:14px">'
+    + '<label>Dönem Adı</label>'
+    + (function(){
+        var now = new Date();
+        var aylar = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+        var varsayilan = aylar[now.getMonth()] + ' ' + now.getFullYear();
+        return '<input id="fd-ad" value="' + varsayilan + '" placeholder="Örn: Nisan 2026 veya Nisan-2 2026" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box">';
+      })()
+    + '</div>'
+    + '<div class="form-group" style="margin-bottom:14px">'
+    + '<label>Excel Dosyası <span style="font-size:11px;color:var(--muted)">(Fiyat_Çalışması.xlsx formatı)</span></label>'
+    + '<input type="file" id="fd-excel" accept=".xlsx,.xls" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box">'
+    + '</div>'
+    + '<div id="fd-status" style="font-size:12px;margin-bottom:14px;min-height:20px"></div>'
+    + '<button onclick="fiyatDonemExcelOku()" style="padding:10px 24px;background:var(--red);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">📥 Yükle ve Kaydet</button>'
+    + '</div>'
+
+    + '</div>';
+}
+
+async function fiyatDonemSilByAd(ad) {
+  if (!confirm(ad + ' dönemi silinecek. Emin misiniz?')) return;
+  var key = 'fiyat_donem_' + ad.replace(/\s+/g, '_');
+  await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store?key=eq.' + encodeURIComponent(key), {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+  });
+  delete FIYAT_DONEMLER[ad];
+  if (FIYAT_AKTIF_DONEM === ad) FIYAT_AKTIF_DONEM = null;
+  toast('🗑 Dönem silindi.', 'blue');
+  renderFiyatPanel();
+}
+
+async function fiyatDonemExcelOku() {
+  var ad = (document.getElementById('fd-ad')||{}).value.trim();
+  var fileEl = document.getElementById('fd-excel');
+  var status = document.getElementById('fd-status');
+
+  if (!ad) { status.style.color='var(--accent)'; status.textContent='⚠️ Dönem adı girin.'; return; }
+  if (!fileEl || !fileEl.files || !fileEl.files[0]) { status.style.color='var(--accent)'; status.textContent='⚠️ Dosya seçin.'; return; }
+
+  status.style.color='var(--muted)'; status.textContent='⏳ Okunuyor...';
+
+  var file = fileEl.files[0];
+  var reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      var XLSX = window.XLSX;
+      if (!XLSX) { status.style.color='var(--accent)'; status.textContent='⚠️ XLSX kütüphanesi yüklenmedi.'; return; }
+
+      var wb = XLSX.read(e.target.result, { type: 'array' });
+
+      // Fiyat Listesi sekmesi
+      var fiyatlar = [];
+      var flSheet = wb.Sheets['Fiyat Listesi'];
+      if (flSheet) {
+        var flData = XLSX.utils.sheet_to_json(flSheet, { header: 1 });
+        var headers = flData[0] || [];
+        // Sütun indexlerini bul
+        var iSinif = headers.indexOf('Sınıf'), iKod = headers.indexOf('Model Kodu');
+        var iAd = headers.indexOf('Model Adı'), iYil = headers.indexOf('Model Yılı   (2024 = Euro 5)  (2025 = Euro 5+)');
+        var iBayiAlis = headers.indexOf('Bayi Alış   (KDV Hariç)');
+        var iListe = headers.indexOf('Liste Fiyatı'), iOtv = headers.indexOf('ÖTV Oranı');
+        var iMarj = headers.indexOf('Toplam Marj');
+
+        for (var i = 1; i < flData.length; i++) {
+          var row = flData[i];
+          if (!row || !row[iKod]) continue;
+          fiyatlar.push({
+            sinif: row[iSinif] || '',
+            kod: row[iKod] || '',
+            ad: row[iAd] || row[iKod] || '',
+            yil: parseInt(row[iYil]) || 2025,
+            bayiAlis: parseFloat(row[iBayiAlis]) || 0,
+            listeFiyat: parseFloat(row[iListe]) || 0,
+            otv: parseFloat(row[iOtv]) || 0.08,
+            marj: parseFloat(row[iMarj]) || 0.091,
+          });
+        }
+      }
+
+      // Kredi Kartı sekmesi
+      var komisyonlar = [];
+      var kkSheet = wb.Sheets['Kredi Kartı'];
+      if (kkSheet) {
+        var kkData = XLSX.utils.sheet_to_json(kkSheet, { header: 1 });
+        var kkH = kkData[1] || []; // 2. satır başlık
+        var iBanka = 0, iTip1 = 1, iTaksit = 4, iToplamMaliyet = 8;
+        for (var j = 2; j < kkData.length; j++) {
+          var r = kkData[j];
+          if (!r || !r[iBanka]) continue;
+          var tip = [r[iTip1], r[2], r[3]].filter(function(x){ return x && x !== '-'; }).join('/');
+          komisyonlar.push({
+            banka: r[iBanka] || '',
+            tip: tip || 'Bireysel',
+            taksit: r[iTaksit] === 'Tek Çekim' ? 1 : parseInt(r[iTaksit]) || 1,
+            oran: parseFloat(r[iToplamMaliyet]) || 0,
+          });
+        }
+      }
+
+      if (!fiyatlar.length && !komisyonlar.length) {
+        status.style.color='var(--accent)'; status.textContent='⚠️ Veri okunamadı. Sekme adlarını kontrol edin.'; return;
+      }
+
+      status.style.color='var(--muted)'; status.textContent='⏳ Kaydediliyor...';
+      await fiyatDonemKaydet(ad, fiyatlar, komisyonlar);
+      FIYAT_AKTIF_DONEM = ad;
+      toast('✅ ' + ad + ' dönemi yüklendi!', 'green');
+      renderFiyatPanel();
+    } catch(err) {
+      status.style.color='var(--accent)'; status.textContent='⚠️ Hata: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function fiyatDonemSil() {
+  if (!FIYAT_AKTIF_DONEM) return;
+  if (!confirm(FIYAT_AKTIF_DONEM + ' dönemi silinecek. Emin misiniz?')) return;
+  var key = 'fiyat_donem_' + FIYAT_AKTIF_DONEM.replace(/\s+/g, '_');
+  await fetch(SUPABASE_URL + '/rest/v1/pp_kv_store?key=eq.' + encodeURIComponent(key), {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+  });
+  delete FIYAT_DONEMLER[FIYAT_AKTIF_DONEM];
+  FIYAT_AKTIF_DONEM = null;
+  toast('🗑 Dönem silindi.', 'blue');
+  renderFiyatPanel();
+}
+
 function fiyatListe() {
-  var siniflar = [...new Set(FIYAT_LISTESI.map(function(m){ return m.sinif; }))];
+  var liste = fiyatAktifListe();
+  var siniflar = [...new Set(liste.map(function(m){ return m.sinif; }))];
   var fmt = function(n) { return Math.round(n).toLocaleString('tr-TR') + ' ₺'; };
 
   var html = '<div style="margin-bottom:12px"><input id="fiyat-ara" oninput="fiyatListeFiltre()" placeholder="🔍 Model ara..." style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:13px;font-family:inherit;width:280px"></div>';
   html += '<div class="card"><div style="overflow-x:auto"><table class="data-table" id="fiyat-liste-tablo" style="table-layout:fixed;width:100%">'
     + '<colgroup>'
     + '<col style="width:auto">'
-    + '<col style="width:60px">'
-    + '<col style="width:170px">'
-    + '<col style="width:150px">'
-    + '<col style="width:60px">'
+    + '<col style="width:55px">'
+    + '<col style="width:155px">'
+    + '<col style="width:155px">'
+    + '<col style="width:55px">'
+    + '<col style="width:145px">'
     + '</colgroup>'
     + '<thead><tr>'
     + '<th>Model</th>'
     + '<th style="text-align:center">Yıl</th>'
     + '<th style="text-align:right">Bayi Alış (KDV hariç)</th>'
-    + '<th style="text-align:right">Liste Fiyatı</th>'
+    + '<th style="text-align:right">Bayi Satış (KDV hariç)</th>'
     + '<th style="text-align:center">ÖTV</th>'
+    + '<th style="text-align:right">Liste Fiyatı</th>'
     + '</tr></thead><tbody>';
 
   siniflar.forEach(function(sinif) {
-    var modeller = FIYAT_LISTESI.filter(function(m){ return m.sinif === sinif; });
-    html += '<tr><td colspan="5" style="background:var(--mid);font-weight:700;font-size:11px;color:var(--muted);padding:6px 12px;letter-spacing:0.5px;text-transform:uppercase">' + sinif + '</td></tr>';
+    var modeller = liste.filter(function(m){ return m.sinif === sinif; });
+    html += '<tr><td colspan="6" style="background:var(--dark);border-top:2px solid var(--red);border-bottom:1px solid var(--border);padding:10px 14px">'
+      + '<span style="font-size:12px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">'
+      + '🏍️ ' + sinif + '</span></td></tr>';
     modeller.forEach(function(m) {
+      var bayiSatis = m.bayiAlis * (1 + (m.marj_standart !== undefined ? m.marj_standart : 0.04));
       html += '<tr>'
         + '<td style="font-weight:600">' + m.ad + '</td>'
         + '<td style="text-align:center">' + m.yil + '</td>'
         + '<td style="text-align:right">' + fmt(m.bayiAlis) + '</td>'
-        + '<td style="text-align:right;font-weight:700;color:var(--blue)">' + fmt(m.listeFiyat) + '</td>'
+        + '<td style="text-align:right;color:var(--green)">' + fmt(bayiSatis) + '</td>'
         + '<td style="text-align:center">' + Math.round(m.otv*100) + '%</td>'
+        + '<td style="text-align:right;font-weight:700;color:var(--blue)">' + fmt(m.listeFiyat) + '</td>'
         + '</tr>';
     });
   });
@@ -6907,7 +7163,8 @@ function fiyatListeFiltre() {
 }
 
 function fiyatKK() {
-  var bankalar = [...new Set(KREDI_KARTI.map(function(k){ return k.banka; }))];
+  var kkData = fiyatAktifKK();
+  var bankalar = [...new Set(kkData.map(function(k){ return k.banka; }))];
   var html = '<div class="card"><div style="overflow-x:auto"><table class="data-table" style="table-layout:fixed;width:100%">'
     + '<colgroup>'
     + '<col style="width:auto">'
@@ -6921,8 +7178,10 @@ function fiyatKK() {
     + '</tr></thead><tbody>';
 
   bankalar.forEach(function(banka) {
-    var rows = KREDI_KARTI.filter(function(k){ return k.banka === banka; });
-    html += '<tr><td colspan="3" style="background:var(--mid);font-weight:700;font-size:11px;color:var(--muted);padding:6px 12px;letter-spacing:0.5px">🏦 ' + banka.toUpperCase() + '</td></tr>';
+    var rows = kkData.filter(function(k){ return k.banka === banka; });
+    html += '<tr><td colspan="3" style="background:var(--dark);border-top:2px solid var(--blue);border-bottom:1px solid var(--border);padding:10px 14px">'
+      + '<span style="font-size:12px;font-weight:800;color:var(--text);letter-spacing:1px;text-transform:uppercase">'
+      + '🏦 ' + banka + '</span></td></tr>';
     rows.forEach(function(k) {
       var renkCls = k.oran < 0.05 ? 'color:var(--green)' : k.oran < 0.10 ? 'color:var(--blue)' : k.oran < 0.15 ? '' : 'color:var(--accent)';
       html += '<tr>'
@@ -6938,17 +7197,19 @@ function fiyatKK() {
 }
 
 function fiyatHesapla() {
-  var siniflar = [...new Set(FIYAT_LISTESI.map(function(m){ return m.sinif; }))];
+  var liste = fiyatAktifListe();
+  var kkData = fiyatAktifKK();
+  var siniflar = [...new Set(liste.map(function(m){ return m.sinif; }))];
   var modelOpts = '<option value="">-- Model Seçin --</option>'
     + siniflar.map(function(s) {
       return '<optgroup label="' + s + '">'
-        + FIYAT_LISTESI.filter(function(m){ return m.sinif === s; }).map(function(m) {
+        + liste.filter(function(m){ return m.sinif === s; }).map(function(m) {
             return '<option value="' + m.kod + '">' + m.ad + ' (' + m.yil + ')</option>';
           }).join('')
         + '</optgroup>';
     }).join('');
 
-  var bankaOpts = [...new Set(KREDI_KARTI.map(function(k){ return k.banka; }))]
+  var bankaOpts = [...new Set(kkData.map(function(k){ return k.banka; }))]
     .map(function(b){ return '<option value="' + b + '">' + b + '</option>'; }).join('');
 
   return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">'
@@ -6962,22 +7223,26 @@ function fiyatHesapla() {
 
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
     + '<div class="form-group"><label>Liste Fiyatı (₺)</label>'
-    + '<input id="h-liste" type="number" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '<input id="h-liste" type="text" oninput="fiyatFormatInput(this);fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
 
     + '<div class="form-group"><label>Kampanya Desteği (₺)</label>'
-    + '<input id="h-kampanya" type="number" value="0" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '<input id="h-kampanya" type="text" value="0" oninput="fiyatFormatInput(this);fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
     + '</div>'
 
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
     + '<div class="form-group"><label>İndirim Oranı (%)</label>'
-    + '<input id="h-indirim" type="number" value="4" step="0.1" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '<input id="h-indirim" type="number" value="0" step="0.1" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
 
     + '<div class="form-group"><label>Nakit Ödeme (₺)</label>'
-    + '<input id="h-nakit" type="number" value="0" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '<input id="h-nakit" type="text" value="0" oninput="fiyatFormatInput(this);fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
     + '</div>'
 
-    + '<div class="form-group"><label>ÖTV Matrahı (₺) <span style="font-size:11px;color:var(--muted)">— manuel girilir</span></label>'
-    + '<input id="h-otvmatrah" type="number" value="200000" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '<div class="form-group"><label>Gümrük Fiyatı (₺) <span style="font-size:11px;color:var(--muted)">— manuel girilir</span></label>'
+    + '<input id="h-gumruk" type="text" value="200.000" oninput="fiyatFormatInput(this);fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '<div class="form-group"><label>ÖTV Matrahı (₺) <span style="font-size:11px;color:var(--muted)">= MAX(Gümrük, Final)</span></label>'
+    + '<input id="h-otvmatrah" type="number" readonly style="width:100%;background:var(--dark);border:1px solid var(--border);color:var(--muted);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;cursor:not-allowed"></div>'
+    + '</div>'
 
     + '<div class="card-title" style="margin-top:16px">Kredi Kartı</div>'
     + '<div class="form-group"><label>Banka</label>'
@@ -7005,11 +7270,23 @@ function fiyatHesapla() {
     + '</div>';
 }
 
+function fiyatFormatInput(el) {
+  var raw = el.value.replace(/\./g, '').replace(/[^0-9]/g, '');
+  if (!raw) { el.value = ''; return; }
+  el.value = parseInt(raw).toLocaleString('tr-TR');
+}
+
+function fiyatParseVal(id) {
+  var el = document.getElementById(id);
+  if (!el) return 0;
+  return parseFloat((el.value || '0').replace(/\./g, '').replace(',', '.')) || 0;
+}
+
 function fiyatHesaplaTaksit() {
   var banka = (document.getElementById('h-banka')||{}).value;
   var sel = document.getElementById('h-taksit');
   if (!sel) return;
-  var rows = KREDI_KARTI.filter(function(k){ return k.banka === banka; });
+  var rows = fiyatAktifKK().filter(function(k){ return k.banka === banka; });
   sel.innerHTML = '<option value="">-- Taksit --</option>'
     + rows.map(function(k){ return '<option value="' + k.taksit + '">' + (k.taksit===1?'Tek Çekim':k.taksit+' Taksit') + ' (%' + (k.oran*100).toFixed(2) + ')</option>'; }).join('');
   fiyatHesaplaOtomatik();
@@ -7018,10 +7295,10 @@ function fiyatHesaplaTaksit() {
 function fiyatHesaplaOtomatik() {
   // Model seçilince fiyatları doldur
   var modelKod = (document.getElementById('h-model')||{}).value;
-  var model = modelKod ? FIYAT_LISTESI.find(function(m){ return m.kod === modelKod; }) : null;
+  var model = modelKod ? fiyatAktifListe().find(function(m){ return m.kod === modelKod; }) : null;
   if (model) {
     var listeEl = document.getElementById('h-liste');
-    if (listeEl && !listeEl._touched) listeEl.value = model.listeFiyat;
+    if (listeEl && !listeEl._touched) listeEl.value = Math.round(model.listeFiyat).toLocaleString('tr-TR');
   }
 
   // Banka/taksit seçilince komisyon oranını doldur
@@ -7034,12 +7311,12 @@ function fiyatHesaplaOtomatik() {
   }
 
   // Hesaplama
-  var liste = parseFloat((document.getElementById('h-liste')||{}).value)||0;
-  var kampanya = parseFloat((document.getElementById('h-kampanya')||{}).value)||0;
+  var liste     = fiyatParseVal('h-liste');
+  var kampanya  = fiyatParseVal('h-kampanya');
   var indirimOran = parseFloat((document.getElementById('h-indirim')||{}).value)||0;
-  var nakit = parseFloat((document.getElementById('h-nakit')||{}).value)||0;
+  var nakit     = fiyatParseVal('h-nakit');
   var komisyonOran = parseFloat((document.getElementById('h-komisyon')||{}).value)||0;
-  var otvMatrah = parseFloat((document.getElementById('h-otvmatrah')||{}).value)||0;
+  var gumrukFiyat  = fiyatParseVal('h-gumruk');
 
   if (!liste || !model) {
     document.getElementById('h-sonuc-fiyat').innerHTML = '<div style="color:var(--muted);font-size:13px">Model ve fiyat bilgilerini girin...</div>';
@@ -7050,12 +7327,18 @@ function fiyatHesaplaOtomatik() {
   var KDV = 0.20;
   var otv = model.otv;
 
-  // Bayi fiyat hesabı
+  // Bayi satış hesabı
   var indirimTutar = model.bayiAlis * (indirimOran/100);
   var indirimliSatis = model.bayiAlis - indirimTutar;
   var finalSatis = indirimliSatis - kampanya;
 
-  // ÖTV/KDV — kullanıcının girdiği ÖTV matrahı üzerinden
+  // ÖTV Matrahı = MAX(Gümrük Fiyatı, Final Satış) — Excel IF formülü
+  var otvMatrah = Math.max(gumrukFiyat, finalSatis);
+
+  // readonly alanı güncelle
+  var otvMatrahEl = document.getElementById('h-otvmatrah');
+  if (otvMatrahEl) otvMatrahEl.value = Math.round(otvMatrah);
+
   var otvTutar = otvMatrah * otv;
   var kdvMatrah = otvMatrah + otvTutar;
   var kdvTutar = kdvMatrah * KDV;
@@ -7066,15 +7349,10 @@ function fiyatHesaplaOtomatik() {
   var komisyonTutar = kartTutar * (komisyonOran/100);
   var aylikOdeme = taksitVal > 1 ? kartTutar / taksitVal : kartTutar;
 
-  // Marj hesabı — modele özgü oranlar
-  var standartOran = model.marj_standart || (model.marj - 0.035 - 0.016);
-  var kpiOran      = model.marj_kpi      || 0.035;
-  var yilSonuOran  = model.marj_yilsonu  || 0.016;
-
-  // Fallback: CB 125 F %2 standart, diğerleri %4
-  if (!model.marj_standart) {
-    standartOran = model.marj - kpiOran - yilSonuOran;
-  }
+  // Marj hesabı
+  var standartOran = model.marj_standart !== undefined ? model.marj_standart : (model.marj - 0.035 - 0.016);
+  var kpiOran      = model.marj_kpi      !== undefined ? model.marj_kpi      : 0.035;
+  var yilSonuOran  = model.marj_yilsonu  !== undefined ? model.marj_yilsonu  : 0.016;
 
   var standartMarj = model.bayiAlis * standartOran;
   var kpiMarj      = model.bayiAlis * kpiOran;
@@ -7092,20 +7370,28 @@ function fiyatHesaplaOtomatik() {
       + '</div>';
   };
 
-  document.getElementById('h-sonuc-fiyat').innerHTML =
-    satir('Bayi Alış (KDV hariç)', fmt(model.bayiAlis), false)
-    + satir('İndirim Tutarı (' + indirimOran + '%)', '-' + fmt(indirimTutar), false, 'var(--accent)')
-    + (kampanya > 0 ? satir('Kampanya Desteği', '-' + fmt(kampanya), false, 'var(--accent)') : '')
-    + satir('Final Satış Fiyatı', fmt(finalSatis), true)
-    + satir('ÖTV Matrahı (manuel)', fmt(otvMatrah), false, 'var(--muted)')
-    + satir('ÖTV (' + Math.round(otv*100) + '%)', fmt(otvTutar), false)
-    + satir('KDV Matrahı', fmt(kdvMatrah), false)
-    + satir('KDV (%20)', fmt(kdvTutar), false)
+  var musteriBlok = '<div style="margin-top:10px;background:rgba(29,78,216,0.06);border:1px solid rgba(29,78,216,0.25);border-radius:8px;padding:12px 14px">'
+    + '<div style="font-size:10px;font-weight:700;color:var(--blue);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">MÜŞTERİYE SUNULACAK</div>'
     + satir('Müşteri Satış Fiyatı', fmt(musteriSatisFiyati), true, 'var(--blue)')
     + (nakit > 0 ? satir('Nakit Ödeme', fmt(nakit), false) : '')
     + satir('Karttan Çekilecek Tutar', fmt(kartTutar), false)
     + (komisyonOran > 0 ? satir('Komisyon (' + fmtP(komisyonOran) + ')', fmt(komisyonTutar), false, 'var(--accent)') : '')
-    + (taksitVal > 1 ? satir('Aylık Ödeme (' + taksitVal + ' taksit)', fmt(aylikOdeme), true, 'var(--green)') : '');
+    + (taksitVal > 1 ? '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;margin-top:4px;border-top:1px solid rgba(29,78,216,0.2)">'
+        + '<span style="font-size:13px;font-weight:700;color:var(--text)">Aylık Ödeme (' + taksitVal + ' taksit)</span>'
+        + '<span style="font-size:20px;font-weight:800;color:var(--green)">' + fmt(aylikOdeme) + '</span>'
+        + '</div>' : '')
+    + '</div>';
+
+  document.getElementById('h-sonuc-fiyat').innerHTML =
+    satir('Bayi Satış (KDV hariç)', fmt(finalSatis), true, 'var(--text)')
+    + satir('İndirim Tutarı (' + indirimOran + '%)', '-' + fmt(indirimTutar), false, 'var(--accent)')
+    + (kampanya > 0 ? satir('Kampanya Desteği', '-' + fmt(kampanya), false, 'var(--accent)') : '')
+    + satir('Gümrük Fiyatı (manuel)', fmt(gumrukFiyat), false, 'var(--muted)')
+    + satir('ÖTV Matrahı = MAX(Gümrük, Final)', fmt(otvMatrah), true)
+    + satir('ÖTV (' + Math.round(otv*100) + '%)', fmt(otvTutar), false)
+    + satir('KDV Matrahı', fmt(kdvMatrah), false)
+    + satir('KDV (%20)', fmt(kdvTutar), false)
+    + musteriBlok;
 
   var marjRenk = brutKar > 0 ? 'var(--green)' : 'var(--accent)';
   document.getElementById('h-sonuc-marj').innerHTML =
