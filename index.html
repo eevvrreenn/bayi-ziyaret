@@ -1359,7 +1359,7 @@ function renderYeniRapor(prefill={}) {
     <textarea id="f-bayigorusu" style="width:100%;min-height:80px">${prefill.bayiGorusu||''}</textarea>
   </div>`;
 
-  const fotograflar = `
+  const fotograflarBolum = `
   <div class="card">
     <div class="card-title">6. Fotoğraflar</div>
     <div id="foto-drop-zone" onclick="document.getElementById('foto-input').click()"
@@ -1431,7 +1431,7 @@ function renderYeniRapor(prefill={}) {
   // Bölüm numaralarını role göre ayarla
   const bulgularHtml = isDetayli ? bulgular.replace('3. Bulgular','7. Bulgular') : bulgular;
   const yorumlarHtml = isDetayli ? yorumlar.replace('4. Yorumlar','8. Yorumlar').replace('5. Bayi','9. Bayi') : yorumlar;
-  const fotograflarHtml = isDetayli ? fotograflar.replace('6. Fotoğraflar','10. Fotoğraflar') : fotograflar;
+  const fotograflarHtml = isDetayli ? fotograflarBolum.replace('6. Fotoğraflar','10. Fotoğraflar') : fotograflarBolum;
 
   document.getElementById('main-content').innerHTML = `
   <div class="page-title">🏍️ Yeni Ziyaret Raporu</div>
