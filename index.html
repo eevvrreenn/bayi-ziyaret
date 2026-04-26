@@ -815,8 +815,8 @@ let editingReport = null;
 // SUPABASE CONFIG
 // ============================================================
 // Supabase bilgileri sabit tanımlı — kullanıcıdan sorulmaz
-let SUPABASE_URL = localStorage.getItem('sb_url') || 'https://lplgqdnsleocmbilbiem.supabase.co';
-let SUPABASE_KEY = localStorage.getItem('sb_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxwbGdxZG5zbGVvY21iaWxiaWVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjM5NjgsImV4cCI6MjA4OTY5OTk2OH0.b2-gE86CKadLeAzL72leFPxE2XlCupvq4GKI0I3CfBo';
+let SUPABASE_URL = 'https://honda-proxy.vercel.app/api/proxy';
+let SUPABASE_KEY = 'proxy'; // Key artık Vercel'de — burada gerekmiyor
 
 window.saveConfig = function() {
   let url = document.getElementById('cfg-url').value.trim().replace(/\/$/, '');
@@ -2841,6 +2841,15 @@ let USERS = [
 
 let currentUser = null;
 
+// ── Şifre Hash (SHA-256, Web Crypto API) ─────────────────────
+async function hashPassword(pw) {
+  if (!pw) return '';
+  if (/^[a-f0-9]{64}$/.test(pw)) return pw; // zaten hash'li
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function isHashed(s) { return /^[a-f0-9]{64}$/.test(s); }
+
 async function doLogin() {
   const u = document.getElementById('login-user').value.trim().toLowerCase();
   const p = document.getElementById('login-pass').value;
@@ -2852,7 +2861,13 @@ async function doLogin() {
 
   // Supabase'den gelen listeyi önce dene, yoksa sabit listeye dön
   const activeUsers = ADMIN_USERS_RT || USERS;
-  const user = activeUsers.find(x => x.username === u && x.password === p);
+  // Şifreyi hash'le ve karşılaştır (geçiş dönemi için düz şifre de kabul edilir)
+  const pHash = await hashPassword(p);
+  const user = activeUsers.find(function(x) {
+    if (x.username !== u) return false;
+    if (isHashed(x.password)) return x.password === pHash;
+    return x.password === p; // geçiş dönemi: henüz hash'lenmemiş
+  });
   if (!user) {
     document.getElementById('login-error').classList.add('show');
     document.getElementById('login-pass').value = '';
@@ -2902,7 +2917,7 @@ async function doLogin() {
   // checkAndOfferDraft true döndürdüğünde renderYeniRapor zaten çağrılmış olur
 
   // Session'a kaydet — F5 sonrası otomatik giriş için
-  sessionStorage.setItem('bz_user', JSON.stringify({ username: user.username, password: user.password }));
+  sessionStorage.setItem('bz_user', JSON.stringify({ username: user.username, pwHash: pHash }));
 
   const overlay = document.getElementById('login-overlay');
   overlay.classList.add('fade-out');
@@ -6220,21 +6235,24 @@ function adminRenderUsers(c) {
 }
 
 function adminUserRow(u, i) {
-  const pw = (u.password||'').replace(/"/g,'&quot;');
   const un = (u.username||'').replace(/"/g,'&quot;');
   const ad = (u.ad||'').replace(/"/g,'&quot;');
+  // Hash'li şifreyi gösterme — boş bırak, değiştirmek isterse yeni girer
+  const pwPlaceholder = isHashed(u.password||'') ? '(şifre kayıtlı — değiştirmek için yeni girin)' : 'Şifre';
   const roles = [
     ['mudur','Bölge Müdürü'],
     ['satis_muduru','Satış Müdürü'],
     ['direktor','Direktör'],
     ['admin','Admin']
   ];
+  const pw = isHashed(u.password||'') ? '' : (u.password||'').replace(/"/g,'&quot;');
+  const pwPh = isHashed(u.password||'') ? 'Kayıtlı — değiştirmek için yeni girin' : 'Şifre';
   const roleOpts = roles.map(([v,l]) => `<option value="${v}"${u.role===v?' selected':''}>${l}</option>`).join('');
   return `<tr id="admin-urow-${i}">
     <td><input class="admin-inp" style="width:130px" value="${un}" oninput="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
     <td><input class="admin-inp" style="width:150px" value="${ad}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
     <td><div style="display:flex;gap:6px;align-items:center">
-      <input class="admin-inp" style="width:110px" type="password" id="pwd-inp-${i}" value="${pw}" oninput="adminUserField(${i},'password',this.value)" placeholder="Şifre">
+      <input class="admin-inp" style="width:110px" type="password" id="pwd-inp-${i}" value="${pw}" oninput="adminUserField(${i},'password',this.value)" placeholder="${pwPh}">
       <button class="admin-del-btn" style="padding:5px 8px;font-size:11px;background:rgba(29,78,216,0.08);border-color:rgba(29,78,216,0.2);color:var(--blue)" onclick="adminShowPwd(${i})" title="Göster">👁</button>
     </div></td>
     <td><select class="admin-sel" style="width:140px" onchange="adminUserField(${i},'role',this.value)">${roleOpts}</select></td>
@@ -6287,7 +6305,7 @@ async function adminResetPassword(username) {
   if (!_adminUsersData) _adminUsersData = ADMIN_USERS_RT ? JSON.parse(JSON.stringify(ADMIN_USERS_RT)) : JSON.parse(JSON.stringify(USERS));
   const user = _adminUsersData.find(function(u) { return u.username === username; });
   if (!user) { toast('⚠️ Kullanıcı bulunamadı', 'red'); return; }
-  user.password = newPwd.trim();
+  user.password = await hashPassword(newPwd.trim());
 
   // Kaydet
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_USERS, _adminUsersData);
@@ -6316,13 +6334,13 @@ async function adminResetPassword(username) {
 
   toast('✅ ' + username + ' şifresi güncellendi!', 'green');
   adminLoadPwdRequests(); // listeyi yenile
-  var pwdVal = (u.password||'').replace(/"/g,'&quot;');
-  var pwdMasked = u.password ? '•'.repeat(Math.min(u.password.length, 10)) : '';
+  var pwdVal = isHashed(u.password||'') ? '' : (u.password||'').replace(/"/g,'&quot;');
+  var pwdPh  = isHashed(u.password||'') ? 'Kayıtlı — değiştirmek için yeni girin' : 'Şifre';
   return `<tr id="admin-urow-${i}">
     <td><input class="admin-inp" style="width:130px" value="${(u.username||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
     <td><input class="admin-inp" style="width:150px" value="${(u.ad||'').replace(/"/g,'&quot;')}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
     <td><div style="display:flex;gap:6px;align-items:center">
-      <input class="admin-inp" style="width:110px" type="password" id="pwd-inp-${i}" value="${pwdVal}" oninput="adminUserField(${i},'password',this.value)" placeholder="Şifre">
+      <input class="admin-inp" style="width:110px" type="password" id="pwd-inp-${i}" value="${pwdVal}" oninput="adminUserField(${i},'password',this.value)" placeholder="${pwdPh}">
       <button class="admin-del-btn" style="padding:5px 8px;font-size:11px;background:rgba(29,78,216,0.08);border-color:rgba(29,78,216,0.2);color:var(--blue)" onclick="adminShowPwd(${i})" title="Şifreyi Göster">👁</button>
     </div></td>
     <td>
@@ -6382,14 +6400,17 @@ function adminClosePwdModal() {
   if (m) m.remove();
 }
 
-function adminPwdCheck() {
+async function adminPwdCheck() {
   var inp = document.getElementById('admin-pwd-confirm');
   if (!inp) return;
   var val = inp.value;
-  // Admin kullanıcısının şifresiyle karşılaştır
   var users = ADMIN_USERS_RT || USERS;
   var adminUser = users.find(function(u){ return u.role === 'admin'; });
-  if (adminUser && val === adminUser.password) {
+  var valHash = await hashPassword(val);
+  var match = adminUser && (
+    isHashed(adminUser.password) ? adminUser.password === valHash : adminUser.password === val
+  );
+  if (match) {
     document.getElementById('admin-pwd-modal').remove();
     if (window._adminPwdCallback) window._adminPwdCallback();
   } else {
@@ -6427,6 +6448,14 @@ async function adminSaveUsers() {
   // Boş kullanıcı adı kontrolü
   const invalid = _adminUsersData.find(u => !(u.username||'').trim() || !(u.password||'').trim());
   if (invalid) { toast('Lütfen tüm kullanıcıların kullanıcı adı ve şifresini doldurun!', 'red'); return; }
+
+  // Şifreleri hash'le (henüz hash'lenmemişleri)
+  for (var i = 0; i < _adminUsersData.length; i++) {
+    var u = _adminUsersData[i];
+    if (u.password && !isHashed(u.password)) {
+      u.password = await hashPassword(u.password);
+    }
+  }
 
   btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…';
   const ok = await adminSaveConfig(ADMIN_CFG_KEY_USERS, _adminUsersData);
@@ -8908,10 +8937,49 @@ async function adminSaveKisayollar() {
   if (saved) {
     try {
       const s = JSON.parse(saved);
-      document.getElementById('login-user').value = s.username || '';
-      document.getElementById('login-pass').value = s.password || '';
-      // Kısa gecikmeyle otomatik giriş yap (DOM hazır olsun)
-      setTimeout(function() { doLogin(); }, 100);
+      if (s.username) {
+        // Hash ile doğrudan giriş yap (şifre alanına yazmaya gerek yok)
+        setTimeout(async function() {
+          if (!ADMIN_USERS_RT) {
+            try { await adminLoadConfig(); } catch(e) {}
+          }
+          const activeUsers = ADMIN_USERS_RT || USERS;
+          const user = activeUsers.find(function(x) {
+            if (x.username !== s.username) return false;
+            if (s.pwHash && isHashed(x.password)) return x.password === s.pwHash;
+            if (s.pwHash && !isHashed(x.password)) {
+              // Kullanıcı hash'lenmemiş — username eşleşiyorsa kabul et, sonra hash'le
+              return true;
+            }
+            return false;
+          });
+          if (user) {
+            document.getElementById('login-error').classList.remove('show');
+            currentUser = user;
+            getMudurListesi();
+            if (['admin','satis_muduru'].includes(user.role)) {
+              selectedMudur = MUDURLER[0];
+            } else {
+              selectedMudur = user.mudur;
+            }
+            const initials = user.ad.split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
+            document.getElementById('user-avatar').textContent = initials;
+            document.getElementById('user-display').textContent = user.ad + (['admin','satis_muduru'].includes(user.role) ? ' (' + (user.role==='admin'?'Admin':'Satış Müdürü') + ')' : '');
+            document.getElementById('login-overlay').style.display = 'none';
+            document.getElementById('app').style.display = 'flex';
+            renderSidebar(['admin','satis_muduru'].includes(user.role));
+            document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display = user.role==='admin'?'':'none'; });
+            setTimeout(function() { applyNavPermissions(); }, 50);
+            loadRaporlarFromDB().then(function(){});
+            kisayollarLoad().catch(function(){});
+            ppLoadPerfFromDb().then(function(loaded){ if(loaded) {} });
+            const savedPage = sessionStorage.getItem('bz_page') || 'anasayfa';
+            if (!checkAndOfferDraft()) showPage(savedPage);
+          } else {
+            sessionStorage.removeItem('bz_user');
+          }
+        }, 100);
+      }
     } catch(e) {
       sessionStorage.removeItem('bz_user');
     }
