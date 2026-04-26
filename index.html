@@ -1084,7 +1084,10 @@ function collectFormData() {
     yorumlar: document.getElementById('f-yorumlar')?.value||'',
     bayiGorusu: document.getElementById('f-bayigorusu')?.value||'',
     fotograflar: [...fotograflar],
-    bolgeMusduru: selectedMudur,
+    bolgeMusduru: (['satis_muduru','direktor'].includes(currentUser?.role))
+      ? ('__' + currentUser.role + '__' + (currentUser.ad||currentUser.username))
+      : selectedMudur,
+    raporYapan: currentUser?.role || 'mudur',
     savedAt: new Date().toLocaleTimeString('tr-TR'),
   };
 }
@@ -2145,7 +2148,8 @@ function renderTakvim() {
       var plan = dp[fm.m] || 0;
       var ak = fm.yr + '-' + String(MONTHS_EN_IDX[fm.m]).padStart(2,'0');
       var actual = raporlar.filter(function(r){
-        return r.bayi===d.name && r.tarih && r.tarih.startsWith(ak);
+        return r.bayi===d.name && r.tarih && r.tarih.startsWith(ak)
+          && r.bolgeMusduru && !r.bolgeMusduru.startsWith('__');
       }).length;
       totalPlan   += plan;
       totalActual += actual;
@@ -8979,6 +8983,8 @@ async function renderAnaSayfa() {
 }
 
 function homeVisitTable() {
+  // SM ve Direktörün ziyaret hedefi yok — gösterme
+  if (currentUser && ['satis_muduru','direktor'].includes(currentUser.role)) return '';
   var now = new Date();
   var year = now.getFullYear();
   var month = now.getMonth() + 1; // 1-12
@@ -8998,6 +9004,7 @@ function homeVisitTable() {
     var actual = raporlar.filter(function(r) {
       if (r.bayi !== dn) return false;
       if (!r.tarih) return false;
+      if (r.bolgeMusduru && r.bolgeMusduru.startsWith('__')) return false; // SM/Direktör raporu
       var parts = r.tarih.split('-');
       return parseInt(parts[0]) === year && parseInt(parts[1]) === month;
     }).length;
