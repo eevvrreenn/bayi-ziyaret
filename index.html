@@ -8939,7 +8939,7 @@ async function adminSaveKisayollar() {
       const s = JSON.parse(saved);
       if (s.username) {
         // Hash ile doğrudan giriş yap (şifre alanına yazmaya gerek yok)
-        setTimeout(async function() {
+      setTimeout(async function() {
           if (!ADMIN_USERS_RT) {
             try { await adminLoadConfig(); } catch(e) {}
           }
@@ -8963,10 +8963,14 @@ async function adminSaveKisayollar() {
               selectedMudur = user.mudur;
             }
             const initials = user.ad.split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
-            document.getElementById('user-avatar').textContent = initials;
-            document.getElementById('user-display').textContent = user.ad + (['admin','satis_muduru'].includes(user.role) ? ' (' + (user.role==='admin'?'Admin':'Satış Müdürü') + ')' : '');
-            document.getElementById('login-overlay').style.display = 'none';
-            document.getElementById('app').style.display = 'flex';
+            const avatarEl = document.getElementById('user-avatar');
+            const displayEl = document.getElementById('user-display');
+            const loginEl = document.getElementById('login-overlay');
+            const appEl = document.getElementById('app');
+            if (avatarEl) avatarEl.textContent = initials;
+            if (displayEl) displayEl.textContent = user.ad + (['admin','satis_muduru'].includes(user.role) ? ' (' + (user.role==='admin'?'Admin':'Satış Müdürü') + ')' : '');
+            if (loginEl) loginEl.style.display = 'none';
+            if (appEl) appEl.style.display = 'flex';
             renderSidebar(['admin','satis_muduru'].includes(user.role));
             document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display = user.role==='admin'?'':'none'; });
             setTimeout(function() { applyNavPermissions(); }, 50);
