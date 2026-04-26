@@ -1157,7 +1157,7 @@ function nextRaporNo() {
 // SIDEBAR
 // ============================================================
 function renderSidebar(isAdmin) {
-  const isSuperUser = isAdmin !== undefined ? isAdmin : ['admin','satis_muduru'].includes(currentUser?.role);
+  const isSuperUser = isAdmin !== undefined ? isAdmin : ['admin','satis_muduru','direktor'].includes(currentUser?.role);
   const list = isSuperUser ? MUDURLER : [selectedMudur];
   const html = list.map(m => {
     const cnt = raporlar.filter(r=>r.bolgeMusduru===m).length;
@@ -2903,9 +2903,9 @@ async function doLogin() {
   document.getElementById('login-error').classList.remove('show');
   currentUser = user;
 
-  // Admin ve Satış Müdürü hepsini görür, diğerleri sadece kendisini
+  // Admin, Satış Müdürü ve Direktör hepsini görür, BM sadece kendisini
   getMudurListesi(); // MUDURLER'i güncelle
-  if (['admin','satis_muduru'].includes(user.role)) {
+  if (['admin','satis_muduru','direktor'].includes(user.role)) {
     selectedMudur = MUDURLER[0];
   } else {
     selectedMudur = user.mudur;
@@ -2914,7 +2914,8 @@ async function doLogin() {
   // Header güncelle
   const initials = user.ad.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
-  document.getElementById('user-display').textContent = user.ad + (user.role==='admin' ? ' (Admin)' : user.role==='satis_muduru' ? ' (Satış Müdürü)' : '');
+  document.getElementById('user-display').textContent = user.ad
+    + (user.role==='admin' ? ' (Admin)' : user.role==='satis_muduru' ? ' (Satış Müdürü)' : user.role==='direktor' ? ' (Direktör)' : '');
 
   // Supabase'den performans + FC verilerini yükle (arka planda)
   ppLoadPerfFromDb().then(function() {
@@ -2937,7 +2938,7 @@ async function doLogin() {
   setTimeout(function() { applyNavPermissions(); }, 50);
 
   // Sidebar: admin tüm müdürleri görür
-  renderSidebar(['admin','satis_muduru'].includes(user.role));
+  renderSidebar(['admin','satis_muduru','direktor'].includes(user.role));
   // Taslak kontrolü
   // F5 sonrası sayfayı restore et, yoksa ana sayfa
   const savedPage = sessionStorage.getItem('bz_page') || 'anasayfa';
@@ -9699,7 +9700,7 @@ async function adminSaveKisayollar() {
             if (displayEl) displayEl.textContent = user.ad + (['admin','satis_muduru'].includes(user.role) ? ' (' + (user.role==='admin'?'Admin':'Satış Müdürü') + ')' : '');
             if (loginEl) loginEl.style.display = 'none';
             if (appEl) appEl.style.display = 'flex';
-            renderSidebar(['admin','satis_muduru'].includes(user.role));
+            renderSidebar(['admin','satis_muduru','direktor'].includes(user.role));
             document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display = user.role==='admin'?'':'none'; });
             setTimeout(function() { applyNavPermissions(); }, 50);
             loadRaporlarFromDB().then(function(){});
