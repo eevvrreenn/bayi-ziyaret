@@ -599,6 +599,7 @@ function saveConfig() {
     <button class="drawer-nav-btn" onclick="showPage('tum-raporlar');closeDrawer()"><span class="icon">📋</span> Tüm Raporlar</button>
     <button class="drawer-nav-btn" onclick="showPage('perf-panel');closeDrawer()"><span class="icon">🏆</span> Performans Paneli</button>
     <button class="drawer-nav-btn" onclick="showPage('etkinlik');closeDrawer()"><span class="icon">🎪</span> Etkinlik Yönetimi</button>
+    <button class="drawer-nav-btn" onclick="showPage('fiyat');closeDrawer()"><span class="icon">💰</span> Fiyat & Hesaplama</button>
     <button class="drawer-nav-btn" onclick="showPage('fc');closeDrawer()"><span class="icon">📈</span> Retail Forecast</button>
     <button class="drawer-nav-btn admin-only" id="drawer-admin-btn" onclick="showPage('admin-panel');closeDrawer()" style="display:none"><span class="icon">⚙️</span> Yönetim Paneli</button>
   </div>
@@ -622,6 +623,7 @@ function saveConfig() {
     <button class="nav-btn" onclick="showPage('tum-raporlar')">Tüm Raporlar</button>
     <button class="nav-btn" onclick="showPage('perf-panel')">🏆 Performans</button>
     <button class="nav-btn" onclick="showPage('etkinlik')">🎪 Etkinlik</button>
+    <button class="nav-btn" onclick="showPage('fiyat')">💰 Fiyat</button>
     <button class="nav-btn" onclick="showPage('fc')">📈 Forecast</button>
     <button class="nav-btn admin-only" id="nav-admin-btn" onclick="showPage('admin-panel')" style="display:none">⚙️ Yönetim</button>
   </div>
@@ -1244,6 +1246,7 @@ function showPage(page) {
   else if (page==='tum-raporlar') renderTumRaporlar();
   else if (page==='perf-panel') renderPerfPanel();
   else if (page==='etkinlik') renderEtkinlikPanel();
+  else if (page==='fiyat') renderFiyatPanel();
   else if (page==='fc') renderFcPanel();
   else if (page==='admin-panel') renderAdminPanel();
 }
@@ -5979,15 +5982,16 @@ var PERM_PAGES = [
   { id: 'tum-raporlar',label: '📋 Tüm Raporlar'      },
   { id: 'perf-panel',  label: '🏆 Performans Paneli' },
   { id: 'etkinlik',    label: '🎪 Etkinlik Yönetimi' },
+  { id: 'fiyat',       label: '💰 Fiyat & Hesaplama' },
   { id: 'fc',          label: '📈 Retail Forecast'   },
   { id: 'admin-panel', label: '⚙️ Yönetim Paneli'    },
 ];
 
 var PERM_DEFAULTS = {
-  mudur:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc'],
-  satis_muduru: ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc'],
-  direktor:     ['anasayfa','perf-panel','etkinlik','fc'],
-  admin:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fc','admin-panel'],
+  mudur:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fc'],
+  satis_muduru: ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fc'],
+  direktor:     ['anasayfa','perf-panel','etkinlik','fiyat','fc'],
+  admin:        ['anasayfa','yeni-rapor','dashboard','takvim','tum-raporlar','perf-panel','etkinlik','fiyat','fc','admin-panel'],
 };
 
 var ADMIN_PERMS_RT = null;
@@ -6688,6 +6692,437 @@ function adminRenderMudurOzet(c) {
 
 function etkFc(n) { if(n>=1000) return '₺'+(n/1000).toFixed(0)+'K'; return '₺'+n; }
 function etkFcf(n) { return '₺'+n.toLocaleString('tr-TR'); }
+
+// ============================================================
+// FİYAT & HESAPLAMA MODÜLÜ
+// ============================================================
+
+var FIYAT_LISTESI = [
+  { sinif:'Küçük Scooter', kod:'PCX 125 DLX',     ad:'PCX 125 DLX',                   yil:2025, bayiAlis:209683.64, listeFiyat:271750, otv:0.08, marj:0.091 },
+  { sinif:'Küçük Scooter', kod:'Honda SH125İ',    ad:'Honda SH125İ',                   yil:2025, bayiAlis:170910.49, listeFiyat:221500, otv:0.08, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'FORZA 250',        ad:'FORZA 250',                      yil:2025, bayiAlis:269483.02, listeFiyat:349250, otv:0.08, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'FORZA 250 OP',     ad:'FORZA 250 OP',                   yil:2025, bayiAlis:288001.54, listeFiyat:373250, otv:0.08, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'FORZA 250 OP SE',  ad:'FORZA 250 OP SE',                yil:2025, bayiAlis:293209.88, listeFiyat:380000, otv:0.08, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'FORZA 250 26',     ad:'FORZA 250 (2026)',               yil:2026, bayiAlis:277584.88, listeFiyat:359750, otv:0.08, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'FORZA 250 OP 26',  ad:'FORZA 250 OP (2026)',            yil:2026, bayiAlis:296682.10, listeFiyat:384500, otv:0.08, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'FORZA 250 SE 26',  ad:'FORZA 250 OP SE (2026)',         yil:2026, bayiAlis:302083.33, listeFiyat:391500, otv:0.08, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'ADV 350',          ad:'ADV 350',                        yil:2025, bayiAlis:316909.98, listeFiyat:521000, otv:0.37, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'ADV 350 SE',       ad:'ADV 350 SE',                     yil:2025, bayiAlis:320407.54, listeFiyat:526750, otv:0.37, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'ADV 350 26',       ad:'ADV 350 (2026)',                 yil:2026, bayiAlis:326490.27, listeFiyat:536750, otv:0.37, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'ADV 350 SE 26',    ad:'ADV 350 SE (2026)',              yil:2026, bayiAlis:329987.83, listeFiyat:542500, otv:0.37, marj:0.091 },
+  { sinif:'Büyük Scooter', kod:'FORZA 750',        ad:'FORZA 750',                      yil:2025, bayiAlis:626824.82, listeFiyat:1030500, otv:0.37, marj:0.091 },
+  { sinif:'LMC',           kod:'CB 125 F',         ad:'CB 125 F',                       yil:2025, bayiAlis:114969.14, listeFiyat:149000, otv:0.08, marj:0.071, marj_standart:0.020, marj_kpi:0.035, marj_yilsonu:0.016 },
+  { sinif:'E-Bike',        kod:'EVP1',              ad:'EVP1',                           yil:2024, bayiAlis:88996.76,  listeFiyat:110000, otv:0.03, marj:0.091 },
+  { sinif:'Naked',         kod:'MONKEY',            ad:'MONKEY',                         yil:2025, bayiAlis:200038.58, listeFiyat:259250, otv:0.08, marj:0.091 },
+  { sinif:'Naked',         kod:'CB 250 R',          ad:'CB 250 R',                       yil:2024, bayiAlis:188078.70, listeFiyat:243750, otv:0.08, marj:0.091 },
+  { sinif:'Naked',         kod:'CL 250',            ad:'CL 250',                         yil:2025, bayiAlis:277006.17, listeFiyat:359000, otv:0.08, marj:0.091 },
+  { sinif:'Naked',         kod:'CB500 HORNET',      ad:'CB500 HORNET',                   yil:2025, bayiAlis:334549.88, listeFiyat:550000, otv:0.37, marj:0.091 },
+  { sinif:'Naked',         kod:'CB650 R',           ad:'CB650 R',                        yil:2025, bayiAlis:513382.00, listeFiyat:844000, otv:0.37, marj:0.091 },
+  { sinif:'Naked',         kod:'CB750 HORNET',      ad:'CB750 HORNET',                   yil:2025, bayiAlis:456964.72, listeFiyat:751250, otv:0.37, marj:0.091 },
+  { sinif:'Super Sport',   kod:'CBR 500 R',         ad:'CBR 500 R',                      yil:2025, bayiAlis:354014.60, listeFiyat:582000, otv:0.37, marj:0.091 },
+  { sinif:'Super Sport',   kod:'CBR 650 R',         ad:'CBR 650 R',                      yil:2025, bayiAlis:523114.36, listeFiyat:860000, otv:0.37, marj:0.091 },
+  { sinif:'Super Sport',   kod:'CBR 1000 RRR SP',   ad:'CBR 1000 RRR SP',                yil:2025, bayiAlis:1384580.29, listeFiyat:2276250, otv:0.37, marj:0.091 },
+  { sinif:'Touring',       kod:'NT 1100',           ad:'NT 1100',                        yil:2025, bayiAlis:654653.28, listeFiyat:1076250, otv:0.37, marj:0.091 },
+  { sinif:'Touring',       kod:'NT 1100 DCT',       ad:'NT 1100 DCT',                    yil:2025, bayiAlis:737226.28, listeFiyat:1212000, otv:0.37, marj:0.091 },
+  { sinif:'Touring',       kod:'GL 1800 DCT',       ad:'GL 1800 DCT (Gold Wing)',         yil:2025, bayiAlis:1590480.54, listeFiyat:2614750, otv:0.37, marj:0.091 },
+  { sinif:'Touring',       kod:'GL 1800 B DCT',     ad:'GL 1800 B DCT (Bagger)',          yil:2025, bayiAlis:1382755.47, listeFiyat:2273250, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'NX 500',            ad:'NX 500',                         yil:2025, bayiAlis:369677.62, listeFiyat:607750, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'NC 750 X',          ad:'NC 750 X',                       yil:2025, bayiAlis:458333.33, listeFiyat:753500, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'NC 750 X DCT',      ad:'NC 750 X DCT',                   yil:2025, bayiAlis:490115.57, listeFiyat:805750, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'ADV 750',           ad:'ADV 750 (X-ADV)',                yil:2025, bayiAlis:636861.31, listeFiyat:1047000, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'ADV 750 SE',        ad:'ADV 750 SE (X-ADV)',             yil:2025, bayiAlis:644920.92, listeFiyat:1060250, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'CRF 1100 L',        ad:'CRF 1100 L (Africa Twin)',       yil:2025, bayiAlis:648266.42, listeFiyat:1065750, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'CRF 1100 L4',       ad:'CRF 1100 L4 (Africa Twin AS ES)',yil:2025, bayiAlis:844130.17, listeFiyat:1387750, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'CRF 1100 D4',       ad:'CRF 1100 D4 (Africa Twin AS DCT)',yil:2025,bayiAlis:888990.27, listeFiyat:1461500, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'CRF 1100 D3',       ad:'CRF 1100 D3 (Africa Twin DCT)',  yil:2025, bayiAlis:729927.01, listeFiyat:1200000, otv:0.37, marj:0.091 },
+  { sinif:'Adventure',     kod:'XL750L',            ad:'XL750L Transalp',                yil:2025, bayiAlis:536040.15, listeFiyat:881250, otv:0.37, marj:0.091 },
+  { sinif:'On Off',        kod:'CRF 250 L',         ad:'CRF 250 L',                      yil:2025, bayiAlis:265046.30, listeFiyat:343500, otv:0.08, marj:0.091 },
+  { sinif:'On Off',        kod:'CRF 250 RL',        ad:'CRF 250 RL',                     yil:2025, bayiAlis:297067.90, listeFiyat:385000, otv:0.08, marj:0.091 },
+];
+
+var KREDI_KARTI = [
+  // Akbank
+  {banka:'Akbank', tip:'Bireysel/Ticari', taksit:2,  oran:0.0561},
+  {banka:'Akbank', tip:'Bireysel/Ticari', taksit:3,  oran:0.0748},
+  {banka:'Akbank', tip:'Bireysel/Ticari', taksit:4,  oran:0.0935},
+  {banka:'Akbank', tip:'Bireysel/Ticari', taksit:5,  oran:0.1121},
+  {banka:'Akbank', tip:'Bireysel/Ticari', taksit:6,  oran:0.1308},
+  {banka:'Akbank', tip:'Bireysel',        taksit:7,  oran:0.1365},
+  {banka:'Akbank', tip:'Bireysel',        taksit:8,  oran:0.1536},
+  {banka:'Akbank', tip:'Bireysel',        taksit:9,  oran:0.1706},
+  {banka:'Akbank', tip:'Bireysel',        taksit:10, oran:0.1877},
+  {banka:'Akbank', tip:'Bireysel',        taksit:11, oran:0.2048},
+  {banka:'Akbank', tip:'Bireysel',        taksit:12, oran:0.1706},
+  // Garanti
+  {banka:'Garanti', tip:'Bireysel/Ticari/Troy', taksit:1,  oran:0.0424},
+  {banka:'Garanti', tip:'Bireysel/Ticari/Troy', taksit:2,  oran:0.0566},
+  {banka:'Garanti', tip:'Bireysel/Ticari/Troy', taksit:3,  oran:0.0753},
+  {banka:'Garanti', tip:'Bireysel/Ticari/Troy', taksit:4,  oran:0.0940},
+  {banka:'Garanti', tip:'Bireysel/Ticari/Troy', taksit:5,  oran:0.1126},
+  {banka:'Garanti', tip:'Bireysel/Ticari/Troy', taksit:6,  oran:0.1313},
+  {banka:'Garanti', tip:'Bireysel/Troy',        taksit:7,  oran:0.1500},
+  {banka:'Garanti', tip:'Bireysel/Troy',        taksit:8,  oran:0.1687},
+  {banka:'Garanti', tip:'Bireysel/Troy',        taksit:9,  oran:0.1874},
+  {banka:'Garanti', tip:'Bireysel',             taksit:10, oran:0.2061},
+  {banka:'Garanti', tip:'Bireysel',             taksit:11, oran:0.2248},
+  {banka:'Garanti', tip:'Bireysel',             taksit:12, oran:0.2435},
+  // Yapı Kredi
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:1,  oran:0.0381},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:2,  oran:0.0539},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:3,  oran:0.0717},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:4,  oran:0.0895},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:5,  oran:0.1073},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:6,  oran:0.1251},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:7,  oran:0.1429},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:8,  oran:0.1607},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:9,  oran:0.1785},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:10, oran:0.1963},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:11, oran:0.2141},
+  {banka:'Yapı Kredi', tip:'Bireysel/Ticari', taksit:12, oran:0.2319},
+  {banka:'Yapı Kredi', tip:'Ticari',           taksit:13, oran:0.2497},
+  {banka:'Yapı Kredi', tip:'Ticari',           taksit:14, oran:0.2675},
+  {banka:'Yapı Kredi', tip:'Ticari',           taksit:15, oran:0.2853},
+  {banka:'Yapı Kredi', tip:'Ticari',           taksit:16, oran:0.3031},
+  {banka:'Yapı Kredi', tip:'Ticari',           taksit:17, oran:0.3209},
+  {banka:'Yapı Kredi', tip:'Ticari',           taksit:18, oran:0.3387},
+  // İş Bankası
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:1,  oran:0.0474},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:2,  oran:0.0561},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:3,  oran:0.0748},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:4,  oran:0.0935},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:5,  oran:0.1122},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:6,  oran:0.1309},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:7,  oran:0.1496},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:8,  oran:0.1683},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:9,  oran:0.1870},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:10, oran:0.2057},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:11, oran:0.2244},
+  {banka:'İş Bankası', tip:'Bireysel/Ticari', taksit:12, oran:0.2431},
+  // Halkbank
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:1,  oran:0.0339},
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:2,  oran:0.0527},
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:3,  oran:0.0715},
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:4,  oran:0.0903},
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:5,  oran:0.1091},
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:6,  oran:0.1279},
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:7,  oran:0.1467},
+  {banka:'Halkbank', tip:'Bireysel/Ticari', taksit:8,  oran:0.1656},
+  {banka:'Halkbank', tip:'Bireysel',        taksit:9,  oran:0.1844},
+  {banka:'Halkbank', tip:'Bireysel',        taksit:10, oran:0.2032},
+  {banka:'Halkbank', tip:'Bireysel',        taksit:11, oran:0.2220},
+  {banka:'Halkbank', tip:'Bireysel',        taksit:12, oran:0.2408},
+  // QNB
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:2,  oran:0.0586},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:3,  oran:0.0773},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:4,  oran:0.0960},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:5,  oran:0.1146},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:6,  oran:0.1333},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:7,  oran:0.1520},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:8,  oran:0.1707},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:9,  oran:0.1894},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:10, oran:0.2081},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:11, oran:0.2268},
+  {banka:'QNB', tip:'Bireysel/Ticari', taksit:12, oran:0.2455},
+];
+
+var FIYAT_VIEW = 'hesap'; // 'hesap' | 'liste' | 'kk'
+
+function renderFiyatPanel() {
+  currentPage = 'fiyat';
+  document.querySelectorAll('.nav-btn').forEach(function(b) {
+    const m = (b.getAttribute('onclick')||'').match(/showPage\('([^']+)'\)/);
+    b.classList.toggle('active', m && m[1] === 'fiyat');
+  });
+
+  var tabs = [
+    {id:'hesap', label:'🧮 Hesaplama Aracı'},
+    {id:'liste', label:'📋 Fiyat Listesi'},
+    {id:'kk',    label:'💳 Kredi Kartı Komisyonları'},
+  ];
+
+  var tabHtml = '<div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px">'
+    + tabs.map(function(t) {
+      var active = FIYAT_VIEW === t.id;
+      return '<button onclick="FIYAT_VIEW=\'' + t.id + '\';renderFiyatPanel()" style="padding:10px 18px;font-size:13px;font-weight:' + (active?'700':'500') + ';border:none;cursor:pointer;font-family:inherit;border-bottom:2px solid ' + (active?'var(--red)':'transparent') + ';background:transparent;color:' + (active?'var(--red)':'var(--muted)') + '">' + t.label + '</button>';
+    }).join('') + '</div>';
+
+  var content = '';
+  if (FIYAT_VIEW === 'hesap') content = fiyatHesapla();
+  else if (FIYAT_VIEW === 'liste') content = fiyatListe();
+  else content = fiyatKK();
+
+  document.getElementById('main-content').innerHTML =
+    '<div class="page-title">💰 Fiyat & Hesaplama</div>'
+    + tabHtml + content;
+
+  if (FIYAT_VIEW === 'hesap') fiyatHesaplaOtomatik();
+}
+
+function fiyatListe() {
+  var siniflar = [...new Set(FIYAT_LISTESI.map(function(m){ return m.sinif; }))];
+  var fmt = function(n) { return Math.round(n).toLocaleString('tr-TR') + ' ₺'; };
+
+  var html = '<div style="margin-bottom:12px"><input id="fiyat-ara" oninput="fiyatListeFiltre()" placeholder="🔍 Model ara..." style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:13px;font-family:inherit;width:280px"></div>';
+  html += '<div class="card"><div style="overflow-x:auto"><table class="data-table" id="fiyat-liste-tablo" style="table-layout:fixed;width:100%">'
+    + '<colgroup>'
+    + '<col style="width:auto">'
+    + '<col style="width:60px">'
+    + '<col style="width:170px">'
+    + '<col style="width:150px">'
+    + '<col style="width:60px">'
+    + '</colgroup>'
+    + '<thead><tr>'
+    + '<th>Model</th>'
+    + '<th style="text-align:center">Yıl</th>'
+    + '<th style="text-align:right">Bayi Alış (KDV hariç)</th>'
+    + '<th style="text-align:right">Liste Fiyatı</th>'
+    + '<th style="text-align:center">ÖTV</th>'
+    + '</tr></thead><tbody>';
+
+  siniflar.forEach(function(sinif) {
+    var modeller = FIYAT_LISTESI.filter(function(m){ return m.sinif === sinif; });
+    html += '<tr><td colspan="5" style="background:var(--mid);font-weight:700;font-size:11px;color:var(--muted);padding:6px 12px;letter-spacing:0.5px;text-transform:uppercase">' + sinif + '</td></tr>';
+    modeller.forEach(function(m) {
+      html += '<tr>'
+        + '<td style="font-weight:600">' + m.ad + '</td>'
+        + '<td style="text-align:center">' + m.yil + '</td>'
+        + '<td style="text-align:right">' + fmt(m.bayiAlis) + '</td>'
+        + '<td style="text-align:right;font-weight:700;color:var(--blue)">' + fmt(m.listeFiyat) + '</td>'
+        + '<td style="text-align:center">' + Math.round(m.otv*100) + '%</td>'
+        + '</tr>';
+    });
+  });
+
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function fiyatListeFiltre() {
+  var q = (document.getElementById('fiyat-ara')||{value:''}).value.toLowerCase();
+  var rows = document.querySelectorAll('#fiyat-liste-tablo tr');
+  rows.forEach(function(tr) {
+    var text = tr.textContent.toLowerCase();
+    tr.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
+
+function fiyatKK() {
+  var bankalar = [...new Set(KREDI_KARTI.map(function(k){ return k.banka; }))];
+  var html = '<div class="card"><div style="overflow-x:auto"><table class="data-table" style="table-layout:fixed;width:100%">'
+    + '<colgroup>'
+    + '<col style="width:auto">'
+    + '<col style="width:130px">'
+    + '<col style="width:160px">'
+    + '</colgroup>'
+    + '<thead><tr>'
+    + '<th>Kart Tipi</th>'
+    + '<th style="text-align:center">Taksit</th>'
+    + '<th style="text-align:center">Komisyon Oranı</th>'
+    + '</tr></thead><tbody>';
+
+  bankalar.forEach(function(banka) {
+    var rows = KREDI_KARTI.filter(function(k){ return k.banka === banka; });
+    html += '<tr><td colspan="3" style="background:var(--mid);font-weight:700;font-size:11px;color:var(--muted);padding:6px 12px;letter-spacing:0.5px">🏦 ' + banka.toUpperCase() + '</td></tr>';
+    rows.forEach(function(k) {
+      var renkCls = k.oran < 0.05 ? 'color:var(--green)' : k.oran < 0.10 ? 'color:var(--blue)' : k.oran < 0.15 ? '' : 'color:var(--accent)';
+      html += '<tr>'
+        + '<td>' + k.tip + '</td>'
+        + '<td style="text-align:center">' + (k.taksit === 1 ? 'Tek Çekim' : k.taksit + ' Taksit') + '</td>'
+        + '<td style="text-align:center;font-weight:700;' + renkCls + '">%' + (k.oran*100).toFixed(2) + '</td>'
+        + '</tr>';
+    });
+  });
+
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function fiyatHesapla() {
+  var siniflar = [...new Set(FIYAT_LISTESI.map(function(m){ return m.sinif; }))];
+  var modelOpts = '<option value="">-- Model Seçin --</option>'
+    + siniflar.map(function(s) {
+      return '<optgroup label="' + s + '">'
+        + FIYAT_LISTESI.filter(function(m){ return m.sinif === s; }).map(function(m) {
+            return '<option value="' + m.kod + '">' + m.ad + ' (' + m.yil + ')</option>';
+          }).join('')
+        + '</optgroup>';
+    }).join('');
+
+  var bankaOpts = [...new Set(KREDI_KARTI.map(function(k){ return k.banka; }))]
+    .map(function(b){ return '<option value="' + b + '">' + b + '</option>'; }).join('');
+
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">'
+
+    // Sol: Giriş paneli
+    + '<div class="card">'
+    + '<div class="card-title">Model & Fiyat Bilgileri</div>'
+
+    + '<div class="form-group"><label>Model</label>'
+    + '<select id="h-model" onchange="fiyatHesaplaOtomatik()" style="width:100%">' + modelOpts + '</select></div>'
+
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '<div class="form-group"><label>Liste Fiyatı (₺)</label>'
+    + '<input id="h-liste" type="number" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+
+    + '<div class="form-group"><label>Kampanya Desteği (₺)</label>'
+    + '<input id="h-kampanya" type="number" value="0" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '</div>'
+
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '<div class="form-group"><label>İndirim Oranı (%)</label>'
+    + '<input id="h-indirim" type="number" value="4" step="0.1" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+
+    + '<div class="form-group"><label>Nakit Ödeme (₺)</label>'
+    + '<input id="h-nakit" type="number" value="0" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+    + '</div>'
+
+    + '<div class="form-group"><label>ÖTV Matrahı (₺) <span style="font-size:11px;color:var(--muted)">— manuel girilir</span></label>'
+    + '<input id="h-otvmatrah" type="number" value="200000" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit"></div>'
+
+    + '<div class="card-title" style="margin-top:16px">Kredi Kartı</div>'
+    + '<div class="form-group"><label>Banka</label>'
+    + '<select id="h-banka" onchange="fiyatHesaplaTaksit()" style="width:100%"><option value="">-- Banka Seçin --</option>' + bankaOpts + '</select></div>'
+
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '<div class="form-group"><label>Taksit Sayısı</label>'
+    + '<select id="h-taksit" onchange="fiyatHesaplaOtomatik()" style="width:100%"><option value="">--</option></select></div>'
+
+    + '<div class="form-group"><label>Komisyon Oranı (%)</label>'
+    + '<input id="h-komisyon" type="number" step="0.01" oninput="fiyatHesaplaOtomatik()" style="width:100%;background:var(--mid);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit" readonly></div>'
+    + '</div>'
+
+    + '</div>'
+
+    // Sağ: Sonuç paneli
+    + '<div>'
+    + '<div class="card" style="margin-bottom:16px"><div class="card-title">Fiyat Hesabı</div>'
+    + '<div id="h-sonuc-fiyat"><div style="color:var(--muted);font-size:13px">Model seçin...</div></div></div>'
+
+    + '<div class="card"><div class="card-title">Marj & Kar Analizi</div>'
+    + '<div id="h-sonuc-marj"><div style="color:var(--muted);font-size:13px">Model seçin...</div></div></div>'
+    + '</div>'
+
+    + '</div>';
+}
+
+function fiyatHesaplaTaksit() {
+  var banka = (document.getElementById('h-banka')||{}).value;
+  var sel = document.getElementById('h-taksit');
+  if (!sel) return;
+  var rows = KREDI_KARTI.filter(function(k){ return k.banka === banka; });
+  sel.innerHTML = '<option value="">-- Taksit --</option>'
+    + rows.map(function(k){ return '<option value="' + k.taksit + '">' + (k.taksit===1?'Tek Çekim':k.taksit+' Taksit') + ' (%' + (k.oran*100).toFixed(2) + ')</option>'; }).join('');
+  fiyatHesaplaOtomatik();
+}
+
+function fiyatHesaplaOtomatik() {
+  // Model seçilince fiyatları doldur
+  var modelKod = (document.getElementById('h-model')||{}).value;
+  var model = modelKod ? FIYAT_LISTESI.find(function(m){ return m.kod === modelKod; }) : null;
+  if (model) {
+    var listeEl = document.getElementById('h-liste');
+    if (listeEl && !listeEl._touched) listeEl.value = model.listeFiyat;
+  }
+
+  // Banka/taksit seçilince komisyon oranını doldur
+  var banka = (document.getElementById('h-banka')||{}).value;
+  var taksitVal = parseInt((document.getElementById('h-taksit')||{}).value)||0;
+  var komisyonEl = document.getElementById('h-komisyon');
+  if (banka && taksitVal && komisyonEl) {
+    var kkRow = KREDI_KARTI.find(function(k){ return k.banka===banka && k.taksit===taksitVal; });
+    if (kkRow) komisyonEl.value = (kkRow.oran*100).toFixed(2);
+  }
+
+  // Hesaplama
+  var liste = parseFloat((document.getElementById('h-liste')||{}).value)||0;
+  var kampanya = parseFloat((document.getElementById('h-kampanya')||{}).value)||0;
+  var indirimOran = parseFloat((document.getElementById('h-indirim')||{}).value)||0;
+  var nakit = parseFloat((document.getElementById('h-nakit')||{}).value)||0;
+  var komisyonOran = parseFloat((document.getElementById('h-komisyon')||{}).value)||0;
+  var otvMatrah = parseFloat((document.getElementById('h-otvmatrah')||{}).value)||0;
+
+  if (!liste || !model) {
+    document.getElementById('h-sonuc-fiyat').innerHTML = '<div style="color:var(--muted);font-size:13px">Model ve fiyat bilgilerini girin...</div>';
+    document.getElementById('h-sonuc-marj').innerHTML = '<div style="color:var(--muted);font-size:13px">Model seçin...</div>';
+    return;
+  }
+
+  var KDV = 0.20;
+  var otv = model.otv;
+
+  // Bayi fiyat hesabı
+  var indirimTutar = model.bayiAlis * (indirimOran/100);
+  var indirimliSatis = model.bayiAlis - indirimTutar;
+  var finalSatis = indirimliSatis - kampanya;
+
+  // ÖTV/KDV — kullanıcının girdiği ÖTV matrahı üzerinden
+  var otvTutar = otvMatrah * otv;
+  var kdvMatrah = otvMatrah + otvTutar;
+  var kdvTutar = kdvMatrah * KDV;
+  var musteriSatisFiyati = kdvMatrah + kdvTutar;
+
+  // Kart hesabı
+  var kartTutar = Math.max(0, musteriSatisFiyati - nakit);
+  var komisyonTutar = kartTutar * (komisyonOran/100);
+  var aylikOdeme = taksitVal > 1 ? kartTutar / taksitVal : kartTutar;
+
+  // Marj hesabı — modele özgü oranlar
+  var standartOran = model.marj_standart || (model.marj - 0.035 - 0.016);
+  var kpiOran      = model.marj_kpi      || 0.035;
+  var yilSonuOran  = model.marj_yilsonu  || 0.016;
+
+  // Fallback: CB 125 F %2 standart, diğerleri %4
+  if (!model.marj_standart) {
+    standartOran = model.marj - kpiOran - yilSonuOran;
+  }
+
+  var standartMarj = model.bayiAlis * standartOran;
+  var kpiMarj      = model.bayiAlis * kpiOran;
+  var yilSonuPrim  = model.bayiAlis * yilSonuOran;
+  var toplamMarj   = standartMarj + kpiMarj + yilSonuPrim;
+  var brutKar      = toplamMarj - indirimTutar - komisyonTutar;
+  var brutKarOran  = musteriSatisFiyati > 0 ? (brutKar / musteriSatisFiyati * 100) : 0;
+
+  var fmt = function(n) { return Math.round(n).toLocaleString('tr-TR') + ' ₺'; };
+  var fmtP = function(n) { return n.toFixed(2) + '%'; };
+  var satir = function(lbl, val, bold, color) {
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">'
+      + '<span style="font-size:12px;color:var(--muted)">' + lbl + '</span>'
+      + '<span style="font-size:13px;font-weight:' + (bold?'700':'500') + ';color:' + (color||'var(--text)') + '">' + val + '</span>'
+      + '</div>';
+  };
+
+  document.getElementById('h-sonuc-fiyat').innerHTML =
+    satir('Bayi Alış (KDV hariç)', fmt(model.bayiAlis), false)
+    + satir('İndirim Tutarı (' + indirimOran + '%)', '-' + fmt(indirimTutar), false, 'var(--accent)')
+    + (kampanya > 0 ? satir('Kampanya Desteği', '-' + fmt(kampanya), false, 'var(--accent)') : '')
+    + satir('Final Satış Fiyatı', fmt(finalSatis), true)
+    + satir('ÖTV Matrahı (manuel)', fmt(otvMatrah), false, 'var(--muted)')
+    + satir('ÖTV (' + Math.round(otv*100) + '%)', fmt(otvTutar), false)
+    + satir('KDV Matrahı', fmt(kdvMatrah), false)
+    + satir('KDV (%20)', fmt(kdvTutar), false)
+    + satir('Müşteri Satış Fiyatı', fmt(musteriSatisFiyati), true, 'var(--blue)')
+    + (nakit > 0 ? satir('Nakit Ödeme', fmt(nakit), false) : '')
+    + satir('Karttan Çekilecek Tutar', fmt(kartTutar), false)
+    + (komisyonOran > 0 ? satir('Komisyon (' + fmtP(komisyonOran) + ')', fmt(komisyonTutar), false, 'var(--accent)') : '')
+    + (taksitVal > 1 ? satir('Aylık Ödeme (' + taksitVal + ' taksit)', fmt(aylikOdeme), true, 'var(--green)') : '');
+
+  var marjRenk = brutKar > 0 ? 'var(--green)' : 'var(--accent)';
+  document.getElementById('h-sonuc-marj').innerHTML =
+    satir('Standart Marj (%' + (standartOran*100).toFixed(1) + ')', fmt(standartMarj), false)
+    + satir('KPI Marjı (%' + (kpiOran*100).toFixed(1) + ')', fmt(kpiMarj), false)
+    + satir('Yıl Sonu Primi (%' + (yilSonuOran*100).toFixed(1) + ')', fmt(yilSonuPrim), false)
+    + satir('Toplam Marj', fmt(toplamMarj), true)
+    + satir('İndirim Tutarı', '-' + fmt(indirimTutar), false, 'var(--accent)')
+    + (komisyonTutar > 0 ? satir('Komisyon Tutarı', '-' + fmt(komisyonTutar), false, 'var(--accent)') : '')
+    + satir('Brüt Kar', fmt(brutKar), true, marjRenk)
+    + satir('Brüt Kar Oranı', fmtP(brutKarOran), true, marjRenk);
+}
+
+// Liste input'u manuel değiştirilince model otomatik doldurmayı durdur
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.id === 'h-liste') e.target._touched = true;
+});
 
 // ============================================================
 // RETAIL FORECAST PANELİ
