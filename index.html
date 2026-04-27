@@ -2881,20 +2881,27 @@ async function doLogin() {
   const u = document.getElementById('login-user').value.trim().toLowerCase();
   const p = document.getElementById('login-pass').value;
 
-  // Önce Supabase'den kullanıcı listesini yükle (henüz yüklenmediyse)
-  if (!ADMIN_USERS_RT) {
-    try { await adminLoadConfig(); } catch(e) { console.warn('adminLoadConfig:', e); }
+  // Şifreyi hash'le
+  const pHash = await hashPassword(p);
+
+  // Önce sabit listeyle dene (hızlı) — sonra Supabase listesiyle
+  function tryMatch(list) {
+    return (list||[]).find(function(x) {
+      if ((x.username||'').toLowerCase() !== u) return false;
+      if (isHashed(x.password)) return x.password === pHash;
+      return x.password === p;
+    });
   }
 
-  // Supabase'den gelen listeyi önce dene, yoksa sabit listeye dön
-  const activeUsers = ADMIN_USERS_RT || USERS;
-  // Şifreyi hash'le ve karşılaştır (geçiş dönemi için düz şifre de kabul edilir)
-  const pHash = await hashPassword(p);
-  const user = activeUsers.find(function(x) {
-    if (x.username !== u) return false;
-    if (isHashed(x.password)) return x.password === pHash;
-    return x.password === p; // geçiş dönemi: henüz hash'lenmemiş
-  });
+  let user = tryMatch(ADMIN_USERS_RT) || tryMatch(USERS);
+
+  // Sabit listede bulunamadıysa Supabase'den yükleyip tekrar dene
+  if (!user && !ADMIN_USERS_RT) {
+    try {
+      await adminLoadConfig();
+      user = tryMatch(ADMIN_USERS_RT);
+    } catch(e) { console.warn('adminLoadConfig:', e); }
+  }
   if (!user) {
     document.getElementById('login-error').classList.add('show');
     document.getElementById('login-pass').value = '';
@@ -2924,6 +2931,11 @@ async function doLogin() {
 
   // Supabase'den raporları yükle
   try { await loadRaporlarFromDB(); } catch(e) { console.warn('loadRaporlar:', e); }
+  // Config henüz yüklenmediyse arka planda yükle (login'i bloklamaz)
+  if (!ADMIN_USERS_RT) {
+    adminLoadConfig().catch(function(e){ console.warn('bg adminLoadConfig:', e); });
+  }
+
   // Kısayolları ve taslak raporları yükle
   kisayollarLoad().catch(function(){});
   taslakRaporlarLoad().catch(function(){});
