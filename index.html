@@ -6866,7 +6866,7 @@ var KREDI_KARTI = [
 
 var FIYAT_VIEW = 'hesap';
 var FIYAT_DONEMLER = {}; // { 'Nisan 2026': { fiyatlar: [...], komisyonlar: [...] } }
-var FIYAT_AKTIF_DONEM = sessionStorage.getItem('fiyat_aktif_donem') || null; // Seçili dönem adı — null ise varsayılan veriler kullanılır
+var FIYAT_AKTIF_DONEM = (sessionStorage.getItem('fiyat_aktif_donem') || '').replace(/_/g, ' ') || null;
 
 async function fiyatDonemlerYukle() {
   try {
@@ -6877,7 +6877,7 @@ async function fiyatDonemlerYukle() {
     var rows = await res.json();
     FIYAT_DONEMLER = {};
     rows.forEach(function(r) {
-      var donemAd = r.key.replace('fiyat_donem_', '');
+      var donemAd = r.key.replace('fiyat_donem_', '').replace(/_/g, ' ');
       try { FIYAT_DONEMLER[donemAd] = JSON.parse(r.value); } catch(e) {}
     });
   } catch(e) {}
