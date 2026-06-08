@@ -1158,17 +1158,16 @@ function nextRaporNo() {
 // ============================================================
 function renderSidebar(isAdmin) {
   const isSuperUser = isAdmin !== undefined ? isAdmin : ['admin','satis_muduru','direktor'].includes(currentUser?.role);
-  const list = isSuperUser ? MUDURLER : [selectedMudur];
+  const list = isSuperUser ? MUDURLER : (selectedMudur ? [selectedMudur] : []);
   const html = list.map(m => {
     const cnt = raporlar.filter(r=>r.bolgeMusduru===m).length;
     return `<div class="mudur-item ${m===selectedMudur?'active':''}" onclick="selectMudur('${m}')">
       <div class="mudur-name">${m}</div>
       <div class="mudur-count">${cnt} ziyaret</div>
     </div>`;
-  }).join('');
+  }).join('') + (isSuperUser && !selectedMudur ? '<div style="font-size:11px;color:var(--muted);padding:10px 12px">Bölge müdürü seçin</div>' : '');
   const el = document.getElementById('mudur-list');
   if (el) el.innerHTML = html;
-  // Also update drawer
   const drawerHtml = list.map(m => {
     const cnt = raporlar.filter(r=>r.bolgeMusduru===m).length;
     return `<div class="drawer-mudur-item ${m===selectedMudur?'active':''}" onclick="selectMudur('${m}');closeDrawer()">
@@ -2910,10 +2909,12 @@ async function doLogin() {
   document.getElementById('login-error').classList.remove('show');
   currentUser = user;
 
-  // Admin, Satış Müdürü ve Direktör hepsini görür, BM sadece kendisini
-  getMudurListesi(); // MUDURLER'i güncelle
-  if (['admin','satis_muduru','direktor'].includes(user.role)) {
+  // Admin ve SM tüm müdürleri görür, Direktör de görür ama başta seçili değil, BM kendisi
+  getMudurListesi();
+  if (['admin','satis_muduru'].includes(user.role)) {
     selectedMudur = MUDURLER[0];
+  } else if (user.role === 'direktor') {
+    selectedMudur = null; // Direktör başta hiçbirini seçmemiş
   } else {
     selectedMudur = user.mudur;
   }
@@ -9737,6 +9738,8 @@ async function adminSaveKisayollar() {
             getMudurListesi();
             if (['admin','satis_muduru'].includes(user.role)) {
               selectedMudur = MUDURLER[0];
+            } else if (user.role === 'direktor') {
+              selectedMudur = null;
             } else {
               selectedMudur = user.mudur;
             }
