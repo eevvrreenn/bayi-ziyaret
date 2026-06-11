@@ -2910,11 +2910,13 @@ async function doLogin() {
   currentUser = user;
 
   // Admin ve SM tüm müdürleri görür, Direktör de görür ama başta seçili değil, BM kendisi
+  // Önce config'i yükle — müdür listesi doğru gelsin
+  try { await adminLoadConfig(); } catch(e) { console.warn('adminLoadConfig:', e); }
   getMudurListesi();
   if (['admin','satis_muduru'].includes(user.role)) {
     selectedMudur = MUDURLER[0];
   } else if (user.role === 'direktor') {
-    selectedMudur = null; // Direktör başta hiçbirini seçmemiş
+    selectedMudur = null;
   } else {
     selectedMudur = user.mudur;
   }
@@ -2932,11 +2934,6 @@ async function doLogin() {
 
   // Supabase'den raporları yükle
   try { await loadRaporlarFromDB(); } catch(e) { console.warn('loadRaporlar:', e); }
-  // Config henüz yüklenmediyse arka planda yükle (login'i bloklamaz)
-  if (!ADMIN_USERS_RT) {
-    adminLoadConfig().catch(function(e){ console.warn('bg adminLoadConfig:', e); });
-  }
-
   // Kısayolları ve taslak raporları yükle
   kisayollarLoad().catch(function(){});
   taslakRaporlarLoad().catch(function(){});
@@ -9036,6 +9033,8 @@ async function renderAnaSayfa() {
 function homeVisitTable() {
   // SM ve Direktörün ziyaret hedefi yok — gösterme
   if (currentUser && ['satis_muduru','direktor'].includes(currentUser.role)) return '';
+  // selectedMudur null ise gösterme
+  if (!selectedMudur) return '';
   var now = new Date();
   var year = now.getFullYear();
   var month = now.getMonth() + 1; // 1-12
