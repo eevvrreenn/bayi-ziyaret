@@ -809,7 +809,7 @@ const TEST_MODELLER_DEFAULT = ["PCX-125","SH125","CB125F","CL250 E-Clutch","Forz
 let TEST_MODELLER = [...TEST_MODELLER_DEFAULT];
 
 let raporlar = [];
-let selectedMudur = MUDURLER[0]; // login sonrası getMudurListesi() ile güncellenir
+var selectedMudur = MUDURLER[0]; // login sonrası getMudurListesi() ile güncellenir
 let currentPage = 'yeni-rapor';
 let editingReport = null;
 
@@ -2865,7 +2865,7 @@ let USERS = [
   { username: 'admin',       password: 'Admin2026!', ad: 'Yönetici',         mudur: null,              role: 'admin' },
 ];
 
-let currentUser = null;
+var currentUser = null;
 
 // ── Şifre Hash (SHA-256, Web Crypto API) ─────────────────────
 async function hashPassword(pw) {
@@ -9041,8 +9041,9 @@ function homeVisitTable() {
   var monthKey = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()];
   var monthLabel = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'][now.getMonth()];
 
-  // Bu kullanıcının sorumlu olduğu bayiler
-  var mudur = currentUser ? currentUser.mudur : selectedMudur;
+  // Bu kullanıcının sorumlu olduğu bayiler — BM kendi müdür adıyla, diğerleri selectedMudur
+  var mudur = (currentUser && currentUser.role === 'mudur') ? (currentUser.mudur || selectedMudur) : selectedMudur;
+  if (!mudur) return '';
   var myDealers = (ADMIN_BAYILER_RT || BAYILER).filter(function(b){ return b.mudur === mudur; });
 
   if (!myDealers.length) return '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">📅 ' + monthLabel + ' Ziyaret Planı</div><div style="color:var(--muted);font-size:12px">Bayi tanımlanmamış.</div></div>';
