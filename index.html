@@ -7060,7 +7060,16 @@ async function fiyatDonemExcelOku() {
       var flSheet = wb.Sheets['Fiyat Listesi'];
       if (flSheet) {
         var flData = XLSX.utils.sheet_to_json(flSheet, { header: 1 });
-        var headers = flData[0] || [];
+
+        // Başlık satırını bul — ilk dolu satır değil, en çok sütun içeren satır
+        var headerRowIdx = 0;
+        var maxCols = 0;
+        for (var ri = 0; ri < Math.min(flData.length, 10); ri++) {
+          var nonEmpty = (flData[ri]||[]).filter(function(c){ return c !== null && c !== undefined && c !== ''; }).length;
+          if (nonEmpty > maxCols) { maxCols = nonEmpty; headerRowIdx = ri; }
+        }
+        var headers = flData[headerRowIdx] || [];
+        console.log('Başlık satırı index:', headerRowIdx, '| Başlıklar:', headers);
 
         // Kısmi eşleşme ile sütun bul
         function findCol(keywords) {
@@ -7087,7 +7096,7 @@ async function fiyatDonemExcelOku() {
         console.log('Fiyat parse debug:', debugInfo);
         console.log('Başlıklar:', headers);
 
-        for (var i = 1; i < flData.length; i++) {
+        for (var i = headerRowIdx + 1; i < flData.length; i++) {
           var row = flData[i];
           if (!row) continue;
           // Model kodu veya model adı olan satırları al
@@ -7116,19 +7125,59 @@ async function fiyatDonemExcelOku() {
       var kkSheet = wb.Sheets['Kredi Kartı'];
       if (kkSheet) {
         var kkData = XLSX.utils.sheet_to_json(kkSheet, { header: 1 });
-        var kkH = kkData[1] || []; // 2. satır başlık
-        var iBanka = 0, iTip1 = 1, iTaksit = 4, iToplamMaliyet = 8;
-        for (var j = 2; j < kkData.length; j++) {
+        console.log('KK ilk 5 satır:', kkData.slice(0, 5));
+
+        // Başlık satırını bul — "Banka" veya "Taksit" içeren satır
+        var kkHeaderIdx = 0;
+        for (var ri = 0; ri < Math.min(kkData.length, 10); ri++) {
+          var rowStr = JSON.stringify(kkData[ri]||[]).toLowerCase();
+          if (rowStr.includes('banka') || rowStr.includes('taksit') || rowStr.includes('bank')) {
+            kkHeaderIdx = ri; break;
+          }
+        }
+        var kkHeaders = kkData[kkHeaderIdx] || [];
+        console.log('KK başlık satırı:', kkHeaderIdx, kkHeaders);
+
+        // Sütunları bul
+        function findKKCol(keywords) {
+          for (var ki = 0; ki < keywords.length; ki++) {
+            for (var hi = 0; hi < kkHeaders.length; hi++) {
+              if (kkHeaders[hi] && String(kkHeaders[hi]).toLowerCase().includes(keywords[ki].toLowerCase())) return hi;
+            }
+          }
+          return -1;
+        }
+        var iBanka   = findKKCol(['banka','bank']);
+        var iTaksit  = findKKCol(['taksit','installment','vade']);
+        var iKartTip = findKKCol(['kart','tip','type','bireysel']);
+        var iOran    = findKKCol(['toplam maliyet','komisyon','oran','rate','maliyet','cost']);
+
+        // Fallback: sabit sütunlar
+        if (iBanka   < 0) iBanka   = 0;
+        if (iTaksit  < 0) iTaksit  = 4;
+        if (iOran    < 0) iOran    = 8;
+
+        console.log('KK sütunlar: banka='+iBanka+' taksit='+iTaksit+' kartTip='+iKartTip+' oran='+iOran);
+
+        for (var j = kkHeaderIdx + 1; j < kkData.length; j++) {
           var r = kkData[j];
           if (!r || !r[iBanka]) continue;
-          var tip = [r[iTip1], r[2], r[3]].filter(function(x){ return x && x !== '-'; }).join('/');
-          komisyonlar.push({
-            banka: r[iBanka] || '',
-            tip: tip || 'Bireysel',
-            taksit: r[iTaksit] === 'Tek Çekim' ? 1 : parseInt(r[iTaksit]) || 1,
-            oran: parseFloat(r[iToplamMaliyet]) || 0,
-          });
+          var banka = String(r[iBanka]).trim();
+          if (!banka || banka === '' || banka.toLowerCase() === 'banka') continue;
+          // Kart tipi: birden fazla sütun olabilir
+          var tipParts = [];
+          if (iKartTip >= 0 && r[iKartTip]) tipParts.push(r[iKartTip]);
+          else {
+            [1,2,3].forEach(function(ci){ if (r[ci] && r[ci] !== '-') tipParts.push(r[ci]); });
+          }
+          var tip = tipParts.filter(function(x){ return x && x !== '-'; }).join('/') || 'Bireysel';
+          var taksitVal = r[iTaksit];
+          var taksit = (taksitVal === 'Tek Çekim' || taksitVal === 1 || taksitVal === '1') ? 1 : (parseInt(taksitVal) || 1);
+          var oran = parseFloat(r[iOran]) || 0;
+          if (oran === 0) continue; // Boş satır
+          komisyonlar.push({ banka: banka, tip: tip, taksit: taksit, oran: oran });
         }
+        console.log('Okunan komisyon satırı:', komisyonlar.length);
       }
 
       if (!fiyatlar.length && !komisyonlar.length) {
