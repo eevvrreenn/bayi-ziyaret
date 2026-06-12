@@ -6865,7 +6865,7 @@ var KREDI_KARTI = [
   {banka:'QNB', tip:'Bireysel/Ticari', taksit:12, oran:0.2455},
 ];
 
-var FIYAT_VIEW = 'hesap';
+var FIYAT_VIEW = sessionStorage.getItem('fiyat_view') || 'hesap';
 var FIYAT_DONEMLER = {}; // { 'Nisan 2026': { fiyatlar: [...], komisyonlar: [...] } }
 var FIYAT_AKTIF_DONEM = (sessionStorage.getItem('fiyat_aktif_donem') || '').replace(/_/g, ' ') || null;
 
@@ -6909,6 +6909,8 @@ function fiyatAktifKK() {
 }
 
 function showFiyatPanel() {
+  // Dönem Yönetimi'nde takılı kalmışsa hesap sekmesine dön
+  if (FIYAT_VIEW === 'donem') FIYAT_VIEW = 'hesap';
   // Dönemler yüklenmemişse önce yükle
   if (!Object.keys(FIYAT_DONEMLER).length) {
     fiyatDonemlerYukle().then(function(){ renderFiyatPanel(); });
@@ -6952,7 +6954,7 @@ function renderFiyatPanel() {
   var tabHtml = '<div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px">'
     + tabs.map(function(t) {
       var active = FIYAT_VIEW === t.id;
-      return '<button onclick="FIYAT_VIEW=\'' + t.id + '\';renderFiyatPanel()" style="padding:10px 18px;font-size:13px;font-weight:' + (active?'700':'500') + ';border:none;cursor:pointer;font-family:inherit;border-bottom:2px solid ' + (active?'var(--red)':'transparent') + ';background:transparent;color:' + (active?'var(--red)':'var(--muted)') + '">' + t.label + '</button>';
+      return '<button onclick="FIYAT_VIEW=\'' + t.id + '\';sessionStorage.setItem(\'fiyat_view\',\'' + t.id + '\');renderFiyatPanel()" style="padding:10px 18px;font-size:13px;font-weight:' + (active?'700':'500') + ';border:none;cursor:pointer;font-family:inherit;border-bottom:2px solid ' + (active?'var(--red)':'transparent') + ';background:transparent;color:' + (active?'var(--red)':'var(--muted)') + '">' + t.label + '</button>';
     }).join('') + '</div>';
 
   var content = '';
