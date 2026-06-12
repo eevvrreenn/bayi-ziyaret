@@ -6248,7 +6248,7 @@ function adminRenderUsers(c) {
     <div style="overflow-x:auto">
     <table class="admin-tbl" id="admin-users-tbl">
       <thead><tr>
-        <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Şifre 🔒</th><th>Rol</th><th></th>
+        <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Şifre 🔒</th><th>Rol</th><th>Müdür Adı</th><th></th>
       </tr></thead>
       <tbody id="admin-users-tbody">
       ${users.map((u,i) => adminUserRow(u, i)).join('')}
@@ -6278,25 +6278,26 @@ function adminRenderUsers(c) {
 function adminUserRow(u, i) {
   const un = (u.username||'').replace(/"/g,'&quot;');
   const ad = (u.ad||'').replace(/"/g,'&quot;');
-  // Hash'li şifreyi gösterme — boş bırak, değiştirmek isterse yeni girer
-  const pwPlaceholder = isHashed(u.password||'') ? '(şifre kayıtlı — değiştirmek için yeni girin)' : 'Şifre';
+  const mudurVal = (u.mudur||'').replace(/"/g,'&quot;');
+  const pw = isHashed(u.password||'') ? '' : (u.password||'').replace(/"/g,'&quot;');
+  const pwPh = isHashed(u.password||'') ? 'Kayıtlı — değiştirmek için yeni girin' : 'Şifre';
   const roles = [
     ['mudur','Bölge Müdürü'],
     ['satis_muduru','Satış Müdürü'],
     ['direktor','Direktör'],
     ['admin','Admin']
   ];
-  const pw = isHashed(u.password||'') ? '' : (u.password||'').replace(/"/g,'&quot;');
-  const pwPh = isHashed(u.password||'') ? 'Kayıtlı — değiştirmek için yeni girin' : 'Şifre';
   const roleOpts = roles.map(([v,l]) => `<option value="${v}"${u.role===v?' selected':''}>${l}</option>`).join('');
+  const isMudur = u.role === 'mudur';
   return `<tr id="admin-urow-${i}">
-    <td><input class="admin-inp" style="width:130px" value="${un}" oninput="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
-    <td><input class="admin-inp" style="width:150px" value="${ad}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
+    <td><input class="admin-inp" style="width:120px" value="${un}" oninput="adminUserField(${i},'username',this.value)" placeholder="kullanici.adi"></td>
+    <td><input class="admin-inp" style="width:140px" value="${ad}" oninput="adminUserField(${i},'ad',this.value)" placeholder="Ad Soyad"></td>
     <td><div style="display:flex;gap:6px;align-items:center">
       <input class="admin-inp" style="width:110px" type="password" id="pwd-inp-${i}" value="${pw}" oninput="adminUserField(${i},'password',this.value)" placeholder="${pwPh}">
       <button class="admin-del-btn" style="padding:5px 8px;font-size:11px;background:rgba(29,78,216,0.08);border-color:rgba(29,78,216,0.2);color:var(--blue)" onclick="adminShowPwd(${i})" title="Göster">👁</button>
     </div></td>
-    <td><select class="admin-sel" style="width:140px" onchange="adminUserField(${i},'role',this.value)">${roleOpts}</select></td>
+    <td><select class="admin-sel" style="width:130px" onchange="adminUserField(${i},'role',this.value);adminRenderTab()">${roleOpts}</select></td>
+    <td><input class="admin-inp" style="width:140px;${isMudur?'':'opacity:0.3;pointer-events:none'}" value="${mudurVal}" oninput="adminUserField(${i},'mudur',this.value)" placeholder="Müdür adı (tam)"></td>
     <td><button class="admin-del-btn" onclick="adminDelUser(${i})">🗑 Sil</button></td>
   </tr>`;
 }
