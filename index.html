@@ -1182,9 +1182,11 @@ function renderSidebar(isAdmin) {
 function selectMudur(m) {
   selectedMudur = m;
   renderSidebar();
-  if (currentPage === 'yeni-rapor') renderYeniRapor();
+  if (currentPage === 'anasayfa') renderAnaSayfa();
+  else if (currentPage === 'yeni-rapor') renderYeniRapor();
   else if (currentPage === 'dashboard') renderDashboard();
   else if (currentPage === 'tum-raporlar') renderTumRaporlar();
+  else if (currentPage === 'takvim') renderTakvim();
 }
 
 // ============================================================
@@ -1961,7 +1963,7 @@ function renderDashboard() {
     <label>Bayi Seçin</label>
     <select id="dash-bayi" onchange="loadDashboard()">
       <option value="">-- Bayi Seçin --</option>
-      ${bayilerForMudur.map(b=>`<option value="${b.ad}">${b.ad} – ${b.sehir}</option>`).join('')}
+      ${bayilerForMudur.map(b=>`<option value="${b.ad}">${b.ad}</option>`).join('')}
     </select>
   </div>
   <div id="dashboard-content">
